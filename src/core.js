@@ -1,6 +1,6 @@
 'use strict';
 // ================= constants & helpers =================
-const W=960,H=720,TOP=64,COLS=14,BW=64,BH=24,BX=(W-COLS*BW)/2,BY=110,R=8,PSPD=900,STEP=1/120,DANGER=622,CAMPAIGN_LEN=10,RUN_LEN=25;
+const W=960,H=720,TOP=64,COLS=14,BW=64,BH=24,BX=(W-COLS*BW)/2,BY=110,R=8,PSPD=900,STEP=1/120,DANGER=622,RUN_LEN=25;
 const MONO='ui-monospace,SFMono-Regular,Menlo,Consolas,monospace';
 const SERIF='"Tiempos Headline","Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif';
 const SANS='"Styrene B",-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif';
@@ -23,17 +23,18 @@ store.opt=Object.assign({music:true,sfx:true,shake:true},store.opt);
 store.stats=Object.assign({games:0,time:0,bricks:0,perfects:0,bosses:0,bestChain:0},store.stats);
 store.codex=store.codex||{};store.codex.items=store.codex.items||{};store.name=store.name||'';store.theme=store.theme||'claude';
 // meta-progression for Run mode + Casino; additive merge, same as opt/stats — no migrations
+// Chips and the equipped-relic selection are run-scoped now (game.chips / game.relicsEquipped) — never persisted.
 store.meta=Object.assign({
-  chips:0,
   unlocked:[],            // item ids whose unlock condition has fired — gates pool/directBuy eligibility
   unlockedCapsules:['E','M','L','C','F','S','B','U','H'],
-  relicsOwned:[],relicsEquipped:[],relicSlots:3,
+  relicsOwned:[],relicSlots:3,
   runsPlayed:0,bestRound:0,wins:0,totalScore:0,
   endingsSeen:{},
 }, store.meta);
+// old saves may still carry store.meta.chips/relicsEquipped on disk — never deleted, just no longer read or written
 store.meta.casino=Object.assign({spins:0,blackjackHands:0,blackjackWins:0,blackjackNet:0},store.meta.casino);
 const save=()=>{try{localStorage.setItem(SKEY,JSON.stringify(store))}catch(e){}};
-const MODES=['campaign','endless','daily'];
+const MODES=['endless','daily'];
 const table=m=>m==='daily'?store.hs.daily.filter(e=>e.date===today()):store.hs[m];
 const best=m=>(table(m)[0]||{score:0}).score;
 const qualifies=(m,s)=>{const t=table(m);return s>0&&(t.length<10||s>t[9].score)};
@@ -41,4 +42,4 @@ function addEntry(m,e){const t=table(m).concat(e).sort((a,b)=>b.score-a.score).s
 
 // ================= game state =================
 let state='menu',game=null,K=1,dirty=true,bgL,brL,ovL,sprBall,sprFire,overT=0,entryName='',lastRank=-1;
-let parts=[],menuIdx=0,themeIdx=0,optIdx=0,recTab=0,afterGame=false,lastMode='campaign';
+let parts=[],menuIdx=0,themeIdx=0,optIdx=0,recTab=0,afterGame=false,lastMode='endless',loadoutIdx=0,themesReturnTo='menu';

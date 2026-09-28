@@ -92,6 +92,10 @@ function drawBrick(x,b){
   const ink=st==='neon'?c:st==='soft'?'rgba(255,255,255,.92)':'rgba(0,0,0,.65)';
   if(b.type==='x')drawSpark(x,X+w/2,Y+h/2,h*.45,8,0,st==='neon'?T.gold:ink,1.8);
   else if(b.type==='q'){x.fillStyle=st==='pixel'?'rgba(0,0,0,.7)':'#fff';x.font=`900 14px ${T.body}`;x.textAlign='center';x.fillText('?',X+w/2,Y+h-3)}
+  else if(b.type==='d'||b.type==='m'||b.type==='e'){
+    x.fillStyle=st==='pixel'?'rgba(0,0,0,.7)':'#fff';x.font=`900 14px ${T.body}`;x.textAlign='center';
+    x.fillText(b.type==='d'?'$':b.type==='m'?'×2':'!',X+w/2,Y+h-3);
+  }
   else if(b.max>1&&w>30){x.fillStyle=ink;for(let i=0;i<b.hp;i++)x.fillRect(X+w/2-b.hp*4+i*8+1,Y+h/2-1.5,6,3)}
 }
 function buildBricks(){
@@ -191,7 +195,7 @@ function drawGame(tm){
   const g=game,p=g.p,fire=g.fx.F>0||g.odT>0,blend=T.light?'source-over':'lighter';
   ctx.save();
   if(g.shake>0&&store.opt.shake)ctx.translate(rand(-1,1)*g.shake*.6,rand(-1,1)*g.shake*.6);
-  if(g.endless&&!g.boss&&!g.mods.hudMinimal){
+  if(!g.boss&&!g.mods.hudMinimal){
     let low=0;for(const k of g.bricks)if(k.type!=='s')low=Math.max(low,k.y+k.h);
     const near=clamp((low-(DANGER-220))/220,0,1);
     ctx.strokeStyle=T.bad;ctx.lineWidth=2;ctx.globalAlpha=.2+.7*near*(.5+.5*Math.sin(tm*10));ctx.setLineDash([12,8]);
@@ -238,30 +242,39 @@ function drawHUD(tm){
   label('SCORE',20,22);txt(fmt(g.score),20,50,26);
   label('LIVES',250,22);
   for(let i=0;i<Math.min(g.lives,8);i++){ctx.fillStyle=T.a1;ctx.beginPath();ctx.roundRect(250+i*26,36,20,7,3);ctx.fill()}
-  label(g.endless?(g.mode==='daily'?'DAILY WAVE':'ROUND'):'SECTOR',W/2,22,'center');
-  txt(String(g.endless?g.wave:g.level).padStart(2,'0')+(g.mode==='endless'?'/'+RUN_LEN:g.endless?'':'/'+CAMPAIGN_LEN),W/2,50,26,T.text,'center');
+  label(g.mode==='daily'?'DAILY LEVEL':'LEVEL',W/2,22,'center');
+  txt(String(g.level).padStart(2,'0')+'/'+RUN.finalLevel,W/2,50,26,T.text,'center');
   label('CHAIN',610,22);
   if(g.combo>1){
     const m=comboMult();txt('x'+m,610,50,26,m>=6?T.bad:m>=3?T.gold:T.good);
     txt(g.combo+' hits',670,50,13,T.sub);ctx.fillStyle=T.label;ctx.fillRect(670,54,60*(g.comboT/(2+g.mods.comboTimeBonus)),2);
   }
-  label('HI',W-20,22,'right');txt(fmt(Math.max(best(g.mode),g.score)),W-20,50,26,T.gold,'right');
+  label('CHIPS',W-20,22,'right');txt(fmt(g.chips),W-20,50,26,T.gold,'right');
+  // progress strip: segment pips toward the next boss, and levels until the next Casino
+  const segLen=RUN.bossEvery,posInSeg=((g.level-1)%segLen)+1,pipW=9,gap=4,totalW=segLen*pipW+(segLen-1)*gap;
+  let px=W/2-totalW/2;
+  for(let i=1;i<=segLen;i++){ctx.fillStyle=i<=posInSeg?T.a2:T.label;ctx.globalAlpha=i<=posInSeg?1:.35;ctx.fillRect(px,TOP+3,pipW,3);px+=pipW+gap}
+  ctx.globalAlpha=1;
+  const casinoPos=((g.level-1)%RUN.casinoEvery)+1;
+  txt('CASINO '+casinoPos+'/'+RUN.casinoEvery,W-20,TOP+12,10,T.label,'right');
+  if(!g.boss&&g.levelTotal){ // level clear bar: destroyed / total destructible this level
+    txt((g.levelDestroyed||0)+' / '+g.levelTotal,20,TOP+12,10,T.label);
+    ctx.fillStyle=T.label;ctx.fillRect(20,TOP+16,80*Math.min(1,(g.levelDestroyed||0)/g.levelTotal),2);
+  }
   let ex=12;
   for(const k of['E','H','L','C','F','S','T','I','A','G'])if(g.fx[k]>0){const d=CAPS[k],c=T[d.k];txt(d.n,ex,H-16,10,c);ctx.fillStyle=c;ctx.fillRect(ex,H-11,64*Math.min(1,g.fx[k]/d.d),2);ex+=80}
   if(g.fx.L>0)txt('HOLD SPACE',ex,H-11,10,T.bad);
   if(g.mods.markedDeck&&g.nextCap){txt('NEXT',W-62,H-11,10,T.label,'right');capsule(W-34,H-16,CAPS[g.nextCap])}
   if(g.od>=100&&g.odT<=0)txt('OVERDRIVE READY  —  PRESS SHIFT',W/2,H-14,14,pulse?T.text:T.hot,'center');
+  let rx=W-20; // relic icons: one glyph per equipped relic
+  for(const id of(g.relicsEquipped||[])){const it=ITEM[id];if(!it)continue;txt(it.name[0],rx,H-30,13,T.a1,'right',0,900);rx-=20}
 }
 
 // ================= screens =================
 const MENU=[
-  ['CAMPAIGN','10 sectors, handcrafted & generated. A guardian waits at the end.'],
-  ['RUN','25 rounds, no checkpoints, THE DEALER at the end. Every run pays Chips.'],
-  ['DAILY RUN',"Today's seeded endless wall. A new one every day."],
-  ['CASINO','Spend Chips on Roulette & Blackjack. Win relics, capsules & your loadout.'],
-  ['HOW TO PLAY','Controls, rules, power-ups... and rumors.'],
-  ['THEMES','Seven looks. Pick your vibe.'],
-  ['OPTIONS','Music, sound effects & screen shake.'],
+  ['PLAY','25 levels, no checkpoints, THE DEALER at the end. Every level pays Chips.'],
+  ['DAILY RUN',"Today's seeded run. The same levels, bosses & shelf for everyone."],
+  ['OPTIONS','Audio, Video, Controls & the Codex.'],
   ['RECORDS','High scores, boss codex & lifetime stats.'],
 ];
 function drawLogo(tm,y){
@@ -280,22 +293,21 @@ function drawMenu(tm){
   txt(MENU[menuIdx][1],W/2,578,14,T.sub,'center',0,500);
   const m=MODES[menuIdx];
   if(m){const e=table(m)[0];txt(e?`BEST  ${fmt(e.score)}  —  ${e.name}`:'NO RECORD YET',W/2,608,13,T.gold,'center')}
-  if(menuIdx===1||menuIdx===3)txt(`CHIPS  ${fmt(store.meta.chips)}   ·   RELICS ${store.meta.relicsEquipped.length}/${store.meta.relicSlots}`,W/2,menuIdx===1?632:608,13,T.a1,'center');
+  if(menuIdx===0||menuIdx===1)txt(`RELICS OWNED ${store.meta.relicsOwned.length}   ·   SLOTS ${store.meta.relicSlots}`,W/2,632,13,T.a1,'center');
   footer('↑ ↓  SELECT        ENTER  CONFIRM        M  MUTE');
 }
-function drawHowto(){
-  head('HOW TO PLAY',W/2,70,44,T.a1,16);
-  panel(60,95,410,330,'CONTROLS','a1');
+function drawControls(){
+  head('CONTROLS',W/2,70,44,T.a1,16);
+  panel(60,95,410,330,'','a1');
   [['← → / A D','Move paddle'],['SPACE','Launch · fire laser'],['SHIFT / ↑','Unleash OVERDRIVE'],['P / ESC','Pause'],['M','Mute']]
     .forEach(([k,d],i)=>{txt(k,85,160+i*30,14,T.a1);txt(d,235,160+i*30,14,T.text,'left',0,500)});
   wrap('Where the ball meets the paddle sets its angle. Moving while you hit adds spin.',85,330,370,19,13,T.sub);
   panel(490,95,410,330,'RULES','a2');
   let y=150;
-  for(const s of['CHAIN: break bricks within 2s of each other to multiply points, up to x8.','PERFECT: hit with the mark in the paddle center for bonus points and meter.','OVERDRIVE: fill the top bar, press SHIFT. Piercing fire balls, x2 points.','RUN: the wall descends. Crossing the red line costs a life. Chips earned buy relics at the Casino.','Extra life every 30,000 points.'])
+  for(const s of['CHAIN: break bricks within 2s of each other to multiply points, up to x8.','PERFECT: hit with the mark in the paddle center for bonus points and meter.','OVERDRIVE: fill the top bar, press SHIFT. Piercing fire balls, x2 points.','A Run descends through 25 levels. Crossing the red line costs a life.','Every level pays Chips automatically — spend them at the Casino, every 10 levels.'])
     y=wrap('• '+s,510,y,370,18,13,T.text)+6;
   panel(60,440,840,215,'POWER-UPS','gold');
   BASE_CAPS.forEach((k,i)=>{const d=CAPS[k],x=110+(i%3)*280,yy=500+Math.floor(i/3)*50;capsule(x,yy,d);txt(d.n,x+30,yy-2,13,T[d.k]==='#ffffff'?T.text:T[d.k]);txt(d.info,x+30,yy+15,11,T.sub,'left',0,500)});
-  txt('Rumor has it some guardians only show up for the precise... or the relentless.',W/2,680,13,T.label,'center',0,500);
   footer('ESC  BACK');
 }
 const SAMPLE=[['1','1','1','1','1'],['2','2','X','2','2'],['3','?','3','S','3'],['4','4','4','4','4']].flatMap((r,ri)=>r.map((ch,c)=>{const b=mkBrick(0,0,ch,0);b.x=526+c*68;b.y=176+ri*30;return b}));
@@ -320,28 +332,42 @@ function drawThemes(tm){
   txt(T.tag,695,588,12,T.sub,'center',0,500);
   footer('↑ ↓  BROWSE (LIVE PREVIEW)        ENTER  APPLY        ESC  CANCEL');
 }
-const OPTS=[['MUSIC','music'],['SOUND FX','sfx'],['SCREEN SHAKE','shake'],['BACK',null]];
-function drawOptions(){
+const OPTIONS_MENU=[['AUDIO','opt-audio'],['VIDEO','opt-video'],['CONTROLS','opt-controls'],['CODEX','codex'],['BACK',null]];
+function drawOptionsMenu(){
   head('OPTIONS',W/2,110,44,T.a1,16);
-  panel(W/2-260,150,520,290,'','a1');
-  OPTS.forEach(([n,k],i)=>{
-    const y=215+i*56,sel=i===optIdx;
+  panel(W/2-220,170,440,290,'','a1');
+  OPTIONS_MENU.forEach(([n],i)=>{
+    const y=225+i*50,sel=i===optIdx;
+    if(sel){ctx.fillStyle=T.a1;ctx.globalAlpha=.13;ctx.fillRect(W/2-200,y-26,400,40);ctx.globalAlpha=1}
+    txt(n,W/2,y,18,sel?T.a1:T.text,'center');
+  });
+  footer('↑ ↓  SELECT        ENTER  OPEN        ESC  BACK');
+}
+function optToggleList(title,opts,idx){
+  head(title,W/2,110,44,T.a1,16);
+  panel(W/2-260,150,520,56+opts.length*56,'','a1');
+  opts.forEach(([n,k],i)=>{
+    const y=215+i*56,sel=i===idx;
     if(sel){ctx.fillStyle=T.a1;ctx.globalAlpha=.13;ctx.fillRect(W/2-240,y-28,480,42);ctx.globalAlpha=1}
     txt(n,W/2-210,y,18,sel?T.a1:T.text);
-    if(k)txt(store.opt[k]?'ON':'OFF',W/2+210,y,18,store.opt[k]?T.good:T.bad,'right');
+    if(k==='theme')txt(T.name,W/2+210,y,18,T.a1,'right');
+    else if(k)txt(store.opt[k]?'ON':'OFF',W/2+210,y,18,store.opt[k]?T.good:T.bad,'right');
   });
-  txt(muted?'Everything is muted (M).':'',W/2,480,13,T.bad,'center');
   footer('↑ ↓  SELECT        ← → / ENTER  TOGGLE        ESC  BACK');
 }
-const TABS=['CAMPAIGN','RUN','DAILY','CODEX'];
+const OPTS_AUDIO=[['MUSIC','music'],['SOUND FX','sfx'],['BACK',null]];
+const OPTS_VIDEO=[['THEME','theme'],['SCREEN SHAKE','shake'],['BACK',null]];
+function drawOptAudio(){optToggleList('AUDIO',OPTS_AUDIO,optIdx)}
+function drawOptVideo(){optToggleList('VIDEO',OPTS_VIDEO,optIdx)}
+const TABS=['RUN','DAILY','CODEX'];
 const hms=s=>`${Math.floor(s/3600)}h ${String(Math.floor(s/60)%60).padStart(2,'0')}m`;
 function drawRecords(tm){
   head('RECORDS',W/2,70,44,T.gold,16);
-  TABS.forEach((t,i)=>{const x=W/2+(i-1.5)*170,sel=i===recTab;txt(t,x,112,15,sel?T.a1:T.label,'center');if(sel){ctx.fillStyle=T.a1;ctx.fillRect(x-45,120,90,2)}});
-  if(recTab<3){
+  TABS.forEach((t,i)=>{const x=W/2+(i-1)*170,sel=i===recTab;txt(t,x,112,15,sel?T.a1:T.label,'center');if(sel){ctx.fillStyle=T.a1;ctx.fillRect(x-45,120,90,2)}});
+  if(recTab<2){
     const m=MODES[recTab],rows=table(m),hl=afterGame&&recTab===MODES.indexOf(lastMode)?lastRank:-1;
     panel(80,135,800,505,m==='daily'?'TODAY  ·  '+today():'HALL OF FAME','gold');
-    const cols=[[110,'#','left'],[160,'NAME','left'],[520,'SCORE','right'],[620,m==='campaign'?'SECTOR':m==='endless'?'ROUND':'WAVE','right'],[710,'CHAIN','right'],[850,'DATE','right']];
+    const cols=[[110,'#','left'],[160,'NAME','left'],[520,'SCORE','right'],[620,'LEVEL','right'],[710,'CHAIN','right'],[850,'DATE','right']];
     cols.forEach(([x,s,a])=>label(s,x,190,a));
     if(!rows.length)txt('No scores yet. Go make history.',W/2,360,16,T.sub,'center');
     rows.forEach((e,i)=>{
@@ -365,7 +391,7 @@ function drawRecords(tm){
     [['GAMES',fmt(s.games)],['TIME PLAYED',hms(s.time)],['BRICKS BROKEN',fmt(s.bricks)],['PERFECT HITS',fmt(s.perfects)],['BOSSES DEFEATED',fmt(s.bosses)],['BEST CHAIN',fmt(s.bestChain)]]
       .forEach(([l,v],i)=>{const x=200+(i%3)*280,y=530+Math.floor(i/3)*62;label(l,x,y,'center');txt(v,x,y+28,24,T.text,'center')});
   }
-  footer('← →  TAB        ESC  BACK'+(afterGame?'        R  PLAY AGAIN':'')+(afterGame&&lastMode==='endless'?'        C  CASINO':''));
+  footer('← →  TAB        ESC  BACK'+(afterGame?'        R  PLAY AGAIN':''));
 }
 function bossIcon(k,cx,cy,known){
   if(!known){head('?',cx,cy+24,68,T.label,0);return}
@@ -374,26 +400,62 @@ function bossIcon(k,cx,cy,known){
   else if(k==='mirror'){paddleShape(cx,cy-30,100,11,T.a2,12);paddleShape(cx,cy+20,100,11,T.paddle,12);ctx.fillStyle=`rgb(${T.ball})`;circ(cx+16,cy-4,6)}
   else{drawSpark(ctx,cx,cy,44,12,0,T.a1,6);ctx.fillStyle=T.a1;circ(cx,cy,14)}
 }
+function drawLoadout(){
+  const owned=store.meta.relicsOwned.map(id=>ITEM[id]).filter(Boolean),g=game;
+  head('LOADOUT',W/2,70,44,T.a1,16);
+  txt(`EQUIPPED ${g.relicsEquipped.length} / ${store.meta.relicSlots}`,W/2,104,14,T.sub,'center');
+  if(!owned.length){
+    txt('No relics owned yet. Win some at the Casino.',W/2,300,16,T.sub,'center');
+    footer('ENTER / ESC  START RUN');return;
+  }
+  const rows=owned.length+1;
+  panel(W/2-300,130,600,Math.min(480,70+rows*44),'','a1');
+  owned.forEach((it,i)=>{
+    const y=175+i*44,sel=i===loadoutIdx,on=g.relicsEquipped.includes(it.id);
+    if(sel){ctx.fillStyle=T.a1;ctx.globalAlpha=.13;ctx.fillRect(W/2-280,y-24,560,36);ctx.globalAlpha=1}
+    txt((on?'☑ ':'☐ ')+it.name,W/2-260,y,15,sel?T.a1:(on?T.good:T.text));
+    txt(it.info,W/2+260,y,11,T.sub,'right',0,500);
+  });
+  const doneY=175+owned.length*44,doneSel=loadoutIdx===owned.length;
+  if(doneSel){ctx.fillStyle=T.a1;ctx.globalAlpha=.13;ctx.fillRect(W/2-280,doneY-24,560,36);ctx.globalAlpha=1}
+  txt('START RUN ▶',W/2,doneY,17,doneSel?T.a1:T.good,'center');
+  footer('↑ ↓  SELECT        ENTER  TOGGLE / START        ESC  SKIP');
+}
+function drawReward(){
+  const g=game,opts=g.rewardOptions||[];
+  head('CHOOSE ONE',W/2,120,40,T.gold,16);
+  txt('LEVEL '+g.level+' CLEAR',W/2,158,14,T.sub,'center');
+  const n=opts.length,cw=260,gap=30,totalW=n*cw+(n-1)*gap,x0=W/2-totalW/2;
+  opts.forEach((opt,i)=>{
+    const x=x0+i*(cw+gap),y=220,h=340,sel=i===g.rewardSel,lbl=rewardLabel(opt);
+    panel(x,y,cw,h,'',sel?'a1':'label');
+    if(sel){ctx.strokeStyle=T.a1;ctx.lineWidth=2.5;ctx.strokeRect(x+1.5,y+1.5,cw-3,h-3)}
+    txt(String(i+1),x+16,y+34,20,T.label);
+    head(lbl.name,x+cw/2,y+120,20,T.text,10);
+    wrap(lbl.info,x+cw/2,y+170,cw-40,18,13,T.sub,'center');
+  });
+  footer('← →  CHOOSE        ENTER / 1-'+n+'  TAKE IT');
+}
 function drawOverlay(tm){
   const g=game;ctx.fillStyle=T.dimBg;ctx.fillRect(0,0,W,H);
   if(state==='pause'){
     head('PAUSED',W/2,H/2-10,64,T.a1);
     txt('P  RESUME        Q  QUIT',W/2,H/2+40,16,T.text,'center');
-  }else if(state==='over'&&g.result){ // Run results: ending flavor + chip payout
+  }else if(state==='over'&&g.result){ // Run results: ending flavor + chips earned this run (they don't persist)
     const r=g.result,q=qualifies(g.mode,g.score),f=r.fresh.map(i=>i.name);
     head(r.ending.title,W/2,H/2-120,64,g.won?T.good:T.a1,30);
-    txt(r.ending.line+(r.secret?'  And something secret fell to you.':''),W/2,H/2-82,15,T.sub,'center',0,500);
+    txt(r.ending.line,W/2,H/2-82,15,T.sub,'center',0,500);
     txt(fmt(g.score),W/2,H/2-30,36,T.text,'center');
-    txt(`ROUND ${g.wave}/${RUN_LEN}  ·  BOSSES ${g.stats.bosses}  ·  BEST CHAIN ${g.bestCombo}${g.won?'  ·  +'+fmt(g.lives*5000)+' lives bonus':''}`,W/2,H/2+2,14,T.sub,'center');
-    txt((r.pay<0?'':'+')+fmt(r.pay)+' CHIPS',W/2,H/2+50,28,T.gold,'center',12,800);
-    txt('BANK  '+fmt(store.meta.chips),W/2,H/2+74,12,T.label,'center');
+    txt(`LEVEL ${g.level}/${RUN.finalLevel}  ·  BOSSES ${g.stats.bosses}  ·  BEST CHAIN ${g.bestCombo}${g.won?'  ·  +'+fmt(g.lives*5000)+' lives bonus':''}`,W/2,H/2+2,14,T.sub,'center');
+    txt(fmt(r.chips)+' CHIPS EARNED',W/2,H/2+50,28,T.gold,'center',12,800);
+    txt('HI  '+fmt(Math.max(best(g.mode),g.score)),W/2,H/2+74,12,T.label,'center');
     if(f.length)txt('NEW AT THE CASINO:  '+f.slice(0,4).join('  ·  ')+(f.length>4?`  +${f.length-4} more`:''),W/2,H/2+104,13,T.good,'center');
     if(q)txt('NEW HIGH SCORE!',W/2,H/2+138,20,Math.floor(tm*4)%2?T.gold:T.text,'center',16);
-    if(overT<=0)txt(q?'PRESS ANY KEY':'R  RETRY        C  CASINO        ANY KEY  RECORDS',W/2,H/2+174,14,T.text,'center');
+    if(overT<=0)txt(q?'PRESS ANY KEY':'R  RETRY        ANY KEY  RECORDS',W/2,H/2+174,14,T.text,'center');
   }else if(state==='over'){
     head(g.won?'VICTORY':'GAME OVER',W/2,H/2-40,72,g.won?T.good:T.bad,30);
     txt(fmt(g.score),W/2,H/2+20,36,T.text,'center');
-    txt(`${g.endless?'WAVE '+g.wave:'SECTOR '+g.level}  ·  BEST CHAIN ${g.bestCombo}${g.won?'  ·  +'+fmt(g.lives*5000)+' lives bonus':''}`,W/2,H/2+55,14,T.sub,'center');
+    txt(`LEVEL ${g.level}  ·  BEST CHAIN ${g.bestCombo}${g.won?'  ·  +'+fmt(g.lives*5000)+' lives bonus':''}`,W/2,H/2+55,14,T.sub,'center');
     const q=qualifies(g.mode,g.score);
     if(q)txt('NEW HIGH SCORE!',W/2,H/2+100,22,Math.floor(tm*4)%2?T.gold:T.text,'center',16);
     if(overT<=0)txt(q?'PRESS ANY KEY':'R  RETRY        ANY KEY  RECORDS',W/2,H/2+150,14,T.text,'center');

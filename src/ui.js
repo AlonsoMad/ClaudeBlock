@@ -7,7 +7,7 @@ function press(e){
   if(state==='entry'){
     if(c==='Enter'||c==='NumpadEnter'){
       const g=game,name=entryName.trim()||'PLAYER';store.name=name;
-      lastRank=addEntry(g.mode,{name,score:g.score,level:g.endless?g.wave:g.level,combo:g.bestCombo,date:today(),win:g.won});
+      lastRank=addEntry(g.mode,{name,score:g.score,level:g.level,combo:g.bestCombo,date:today(),win:g.won});
       recTab=MODES.indexOf(g.mode);afterGame=true;state='records';
     }else if(c==='Backspace')entryName=entryName.slice(0,-1);
     else if(/^[a-z0-9 ._-]$/i.test(e.key)&&entryName.length<10)entryName+=e.key.toUpperCase();
@@ -19,40 +19,66 @@ function press(e){
       if(up||dn){menuIdx=(menuIdx+(up?-1:1)+MENU.length)%MENU.length;sfx.menu()}
       else if(ok){
         sfx.select();
-        [()=>newGame('campaign'),()=>newGame('endless'),()=>newGame('daily'),openCasino,()=>{state='howto'},
-         ()=>{themeIdx=THEMES.indexOf(T);state='themes'},()=>{optIdx=0;state='options'},
+        [()=>newGame('endless'),()=>newGame('daily'),()=>{optIdx=0;state='options'},
          ()=>{recTab=0;afterGame=false;lastRank=-1;state='records'}][menuIdx]();
       }
       break;
-    case'howto':if(back||ok)state='menu';break;
+    case'options':
+      if(up||dn){optIdx=(optIdx+(up?-1:1)+OPTIONS_MENU.length)%OPTIONS_MENU.length;sfx.menu()}
+      else if(ok){
+        const dest=OPTIONS_MENU[optIdx][1];sfx.select();
+        if(!dest)state='menu';
+        else if(dest==='codex')openCodex();
+        else{optIdx=0;state=dest}
+      }else if(back)state='menu';
+      break;
+    case'opt-audio':case'opt-video':{
+      const list=state==='opt-audio'?OPTS_AUDIO:OPTS_VIDEO;
+      if(up||dn){optIdx=(optIdx+(up?-1:1)+list.length)%list.length;sfx.menu()}
+      else if(ok||lf||rt){
+        const k=list[optIdx][1];
+        if(k==='theme'){themesReturnTo=state;themeIdx=THEMES.indexOf(T);state='themes'}
+        else if(k){store.opt[k]=!store.opt[k];save();sfx.select()}
+        else if(ok){optIdx=OPTIONS_MENU.findIndex(o=>o[1]===(state==='opt-audio'?'opt-audio':'opt-video'));state='options'}
+      }else if(back){optIdx=OPTIONS_MENU.findIndex(o=>o[1]===(state==='opt-audio'?'opt-audio':'opt-video'));state='options'}
+      break;
+    }
+    case'opt-controls':if(back||ok){optIdx=2;state='options'}break;
+    case'codex':if(back)state='options';break;
     case'themes':
       if(up||dn){themeIdx=(themeIdx+(up?-1:1)+THEMES.length)%THEMES.length;setTheme(THEMES[themeIdx]);sfx.menu()}
-      else if(ok){store.theme=T.id;save();sfx.select();state='menu'}
-      else if(back){setTheme(baseTheme());state='menu'}
-      break;
-    case'options':
-      if(up||dn){optIdx=(optIdx+(up?-1:1)+OPTS.length)%OPTS.length;sfx.menu()}
-      else if(ok||lf||rt){const k=OPTS[optIdx][1];if(k){store.opt[k]=!store.opt[k];save();sfx.select()}else if(ok)state='menu'}
-      else if(back)state='menu';
+      else if(ok){store.theme=T.id;save();sfx.select();state=themesReturnTo}
+      else if(back){setTheme(baseTheme());state=themesReturnTo}
       break;
     case'records':
-      if(lf||rt){recTab=(recTab+(lf?3:1))%4;sfx.menu()}
+      if(lf||rt){recTab=(recTab+(lf?TABS.length-1:1))%TABS.length;sfx.menu()}
       else if(c==='KeyR'&&afterGame)newGame(lastMode);
-      else if(c==='KeyC'&&afterGame&&lastMode==='endless')openCasino();
       else if(back||ok)state='menu';
+      break;
+    case'loadout':{
+      const owned=store.meta.relicsOwned;
+      if(!owned.length){if(ok||back)confirmLoadout();break}
+      if(up||dn){loadoutIdx=(loadoutIdx+(up?-1:1)+owned.length+1)%(owned.length+1);sfx.menu()}
+      else if(ok){if(loadoutIdx>=owned.length)confirmLoadout();else{toggleLoadoutRelic(owned[loadoutIdx]);sfx.select()}}
+      else if(back)confirmLoadout();
+      break;
+    }
+    case'reward':
+      if(lf||rt){game.rewardSel=(game.rewardSel+(lf?-1:1)+game.rewardOptions.length)%game.rewardOptions.length;sfx.menu()}
+      else if(ok)pickReward(game.rewardSel);
+      else if(['Digit1','Digit2','Digit3'].includes(c))pickReward(+c.slice(-1)-1);
       break;
     case'play':
       if(c==='Space')launch();
       else if(c==='ShiftLeft'||c==='ShiftRight'||c==='ArrowUp'||c==='KeyW')overdrive();
       else if(c==='KeyP'||c==='Escape')state='pause';
       break;
-    case'casino':if(c==='Escape')state='menu';break;
+    case'casino':if(c==='Escape')gameOver();break;
     case'pause':if(c==='KeyP'||c==='Escape'||c==='Space')state='play';else if(c==='KeyQ')gameOver();break;
     case'over':
       if(overT>0)break;
       if(qualifies(game.mode,game.score)){entryName=store.name;state='entry'}
       else if(c==='KeyR')newGame(lastMode);
-      else if(c==='KeyC'&&game.mode==='endless')openCasino();
       else{recTab=MODES.indexOf(game.mode);afterGame=true;lastRank=-1;state='records'}
   }
 }
