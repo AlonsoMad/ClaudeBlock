@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BREAKER</title>
+<style>
+  html,body{margin:0;height:100%;background:#EAE6DA;overflow:hidden;transition:background .3s}
+  body{display:flex;align-items:center;justify-content:center}
+  canvas{display:block}
+  #wrap{position:relative}
+  /* casino: laid out in the game's 960x720 space, scaled with the canvas by resize() */
+  #casino{position:absolute;left:0;top:0;width:960px;height:720px;transform-origin:0 0;box-sizing:border-box;padding:18px 26px;
+    display:flex;flex-direction:column;gap:12px;color:var(--text);font:500 13px var(--body);user-select:none}
+  #casino[hidden]{display:none}
+  #casino.busy button{pointer-events:none;opacity:.45}
+  #casino .top,#casino .foot,#casino .row{display:flex;align-items:center;gap:8px}
+  #casino h1{font:var(--hw) 34px var(--head);margin:0 14px 0 0;color:var(--a1)}
+  #casino .chips{margin-left:auto;font:800 24px var(--body);color:var(--gold)}
+  #casino small{font-size:11px;color:var(--label)}
+  #casino button{font:700 12px var(--body);color:var(--text);background:var(--panel);border:1.5px solid var(--label);border-radius:6px;padding:7px 12px;cursor:pointer}
+  #casino button:hover:not(:disabled),#casino button.on{background:var(--a1);border-color:var(--a1);color:var(--bg)}
+  #casino button:disabled{opacity:.3;cursor:default}
+  #casino .go{background:var(--a1);color:var(--bg);border-color:var(--a1);padding:10px 18px;font-size:14px}
+  #casino .body{flex:1;display:flex;gap:16px;min-height:0}
+  #casino .panel{background:var(--panel);border:1.5px solid var(--label);border-radius:10px;padding:14px 16px;box-sizing:border-box;display:flex;flex-direction:column;gap:12px}
+  #casino .wide{flex:1;min-height:0}
+  #casino .msg{flex:1;font:700 14px var(--body);color:var(--text)}
+  #casino .dim{color:var(--sub);margin:0;line-height:1.5}
+  #casino .lbl{font:700 11px var(--body);color:var(--label);letter-spacing:.08em}
+  #casino .gold{color:var(--gold)} #casino .good{color:var(--good)}
+  /* roulette */
+  #casino .wheelcol{width:330px;align-items:center;text-align:center}
+  #casino .tablecol{flex:1}
+  #casino .wheelbox{position:relative;width:300px;height:300px;margin-top:8px}
+  #casino .wheel{width:100%;height:100%;border-radius:50%;box-sizing:border-box;border:8px solid var(--gold);transition:transform 3s cubic-bezier(.12,.7,.18,1)}
+  #casino .pointer{position:absolute;left:50%;top:-12px;transform:translateX(-50%);border:11px solid transparent;border-top:20px solid var(--text);z-index:1}
+  #casino .hub{position:absolute;inset:0;margin:auto;width:120px;height:120px;border-radius:50%;background:var(--bg);display:grid;place-items:center;font:900 44px var(--body);box-shadow:0 0 0 3px var(--gold)}
+  #casino .felt{display:grid;grid-template-columns:repeat(13,1fr);grid-auto-rows:40px;gap:4px;padding:10px;border-radius:8px;background:#1f5f3a}
+  #casino .felt button{padding:0;color:#fff;background:transparent;border-color:rgba(255,255,255,.55);font-size:13px}
+  #casino .felt .red{background:#b8322a} #casino .felt .blk{background:#1d1d1d} #casino .felt .grn{background:#1e8449}
+  #casino .star{font-size:15px;padding:12px;color:var(--gold);border-color:var(--gold)}
+  /* blackjack */
+  #casino .bj{flex:1;background:radial-gradient(ellipse at 50% 30%,#2a7a4c,#174a2e);color:#fff;border-color:#0e2e1c}
+  #casino .bj .lbl,#casino .bj .dim{color:rgba(255,255,255,.8)}
+  #casino .hand{display:flex;gap:8px;min-height:104px}
+  #casino .card{width:70px;height:100px;border-radius:8px;background:#fbfaf4;color:#161616;display:flex;flex-direction:column;align-items:center;justify-content:center;font:800 26px Georgia,serif;box-shadow:0 3px 8px rgba(0,0,0,.35)}
+  #casino .card small{font-size:22px;color:inherit}
+  #casino .card.red{color:#b8322a}
+  #casino .card.back{background:repeating-linear-gradient(45deg,#8a1f2b 0 7px,#b8322a 7px 14px);border:4px solid #fbfaf4;box-sizing:border-box}
+  #casino .bj button{color:#fff;background:rgba(0,0,0,.25);border-color:rgba(255,255,255,.6)}
+  #casino .wager{font-size:22px;min-width:52px;text-align:center}
+  /* loadout & codex */
+  #casino .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;overflow:auto;align-content:start}
+  #casino .codex{grid-template-columns:repeat(5,1fr);flex:1}
+  #casino .item{border:1.5px solid var(--label);border-left:5px solid var(--c);border-radius:8px;padding:9px 10px;display:flex;flex-direction:column;gap:4px;background:var(--bg);cursor:default}
+  #casino .item[data-act]{cursor:pointer}
+  #casino .item.on{outline:2.5px solid var(--a1);background:var(--panel)}
+  #casino .item.dim{opacity:.62}
+  #casino .item.locked{border-left-color:var(--label);align-items:center;justify-content:center;text-align:center;min-height:86px;opacity:.55}
+  #casino .item b{font:800 13px var(--body)} #casino .item.locked b{font-size:28px}
+  #casino .item i{font:700 10px var(--body);font-style:normal;color:var(--c);letter-spacing:.06em}
+  #casino .item p{margin:0;color:var(--sub);font-size:11.5px;line-height:1.35}
+  #casino .item em{font:700 10px var(--body);font-style:normal;color:var(--label)}
+  #casino .item button{align-self:flex-start;padding:4px 9px;font-size:11px}
+  #casino .t1{--c:var(--sub)} #casino .t2{--c:var(--good)} #casino .t3{--c:var(--a1)} #casino .t4{--c:var(--gold)}
+  #casino .caps{display:flex;flex-wrap:wrap;gap:12px 18px;font:700 11px var(--body);color:var(--sub)}
+  #casino .caps span{display:flex;align-items:center;gap:6px}
+  #casino .cap{display:inline-grid;place-items:center;width:34px;height:16px;border-radius:8px;color:var(--bg);font:900 12px var(--body);font-style:normal}
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="c"></canvas><div id="casino" hidden></div></div>
+<script src="src/core.js"></script>
+<script src="src/themes.js"></script>
+<script src="src/audio.js"></script>
+<script src="src/levels.js"></script>
+<script src="src/hooks.js"></script>
+<script src="src/unlocks.js"></script>
+<script src="src/capsules.js"></script>
+<script src="src/relics.js"></script>
+<script src="src/bosses.js"></script>
+<script src="src/engine.js"></script>
+<script src="src/run.js"></script>
+<script src="src/casino.js"></script>
+<script src="src/render.js"></script>
+<script src="src/ui.js"></script>
+<script src="src/main.js"></script>
+</body>
+</html>
