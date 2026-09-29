@@ -1,62 +1,84 @@
 'use strict';
-// ================= Run mode (mode==='endless' internally) + Daily's endless wall =================
-// the wall scrolls down forever, new rows are born under the HUD; a Run ends at Round 25 with THE DEALER
-const isRun=g=>g.mode==='endless';
-function startEndless(){
-  const g=game;g.rowR=rng(g.seed);g.topY=BY+4*BH;g.rowsSpawned=0;g.lastRow=null;
-  while(g.topY>=TOP){g.topY-=BH;spawnRow(g.topY)}
-  resetBall();g.banner={text:g.mode==='daily'?'DAILY RUN':'RUN',sub:g.mode==='daily'?today():'25 rounds  ·  beat the house',t:2};
-}
-function spawnRow(y){
-  const g=game,Rn=g.rowR,i=g.rowsSpawned++;
-  if(i>0&&i%25===0)nextWave();
-  const w=g.wave,maxHp=Math.min(4,1+Math.floor((w+1)/2));
-  if(i%5===0){g.pat=Math.floor(Rn()*4);g.dens=.45+Rn()*.4}
-  const row=Array(COLS).fill('.'),prev=g.lastRow||row;
-  for(let c=0;c<7;c++){
-    const on=[Rn()<g.dens,(c+i)%2===0,c%3!==1&&Rn()<.9,Rn()<g.dens*(i%2?1:.3)][g.pat];
-    if(!on)continue;
-    let ch=String(1+Math.floor(Rn()*maxHp));
-    const x=Rn(),steelOk=w>=3&&c<6&&prev[c]!=='S'&&prev[c-1]!=='S'&&prev[c+1]!=='S'&&row[c-1]!=='S';
-    if(x<.04)ch='X';else if(x<.065)ch='?';else if(steelOk&&x<.065+Math.min(.06,w*.008))ch='S';
-    row[c]=row[13-c]=ch;
-  }
-  g.lastRow=row;
-  row.forEach((ch,c)=>{if(ch!=='.')g.bricks.push(mkBrick(c,y,ch,-i))});
-  dirty=true;
-}
-function nextWave(){
-  const g=game,run=isRun(g);g.wave++;g.t=0;const bonus=500*g.wave;addScore(bonus);
-  g.banner={text:(run?'ROUND ':'WAVE ')+g.wave,sub:'+'+fmt(bonus),t:1.6,c:'a1'};sfx.clear();
-  if(run&&g.wave===RUN_LEN)g.pendingBoss='dealer';
-  else if(g.wave%4===0)g.pendingBoss='overseer';
-  if(run&&g.wave%8===1)setTheme(THEMES[(THEMES.indexOf(T)+1)%THEMES.length]); // cosmetic rotation, not saved
-  fire('roundStart',g.wave);
-}
-
-// ---------- run start / end ----------
+// ================= Run orchestration: stage sequencing, level lifecycle, economy =================
 function runSetup(){
   const g=game;
   if(T!==baseTheme())setTheme(baseTheme());
-  equipRelics(store.meta.relicsEquipped,g.mods);
+  g.relicsEquipped=[]; // every run starts with nothing equipped, regardless of what's owned (§3.2)
+  equipRelics(g.relicsEquipped,g.mods);
+  g.casinoRng=rng((g.seed^0x9e3779b9)|0);
+  g.shelf=null;g.rerolls=0;g.shelfDiscounted=false;
   if(g.mods.markedDeck)g.nextCap=rollCap();
 }
-// ponytail: placeholder formula from GAME_DESIGN.md — tune after playtesting
-const VICTORY_BONUS=250;
-const runPayout=r=>Math.floor(r.score/500)+r.bosses*40+r.round*15+(r.won?VICTORY_BONUS:0);
-console.assert(runPayout({score:0,bosses:0,round:1})===15&&runPayout({score:1000,bosses:2,round:25,won:true})===2+80+375+250,'runPayout');
+function confirmLoadout(){
+  equipRelics(game.relicsEquipped,game.mods);
+  startLevel(1);state='play';
+}
+function toggleLoadoutRelic(id){
+  const g=game,e=g.relicsEquipped;const i=e.indexOf(id);
+  if(i>=0)e.splice(i,1);else if(e.length<store.meta.relicSlots)e.push(id);
+}
+
+// ---------- level lifecycle ----------
+function startLevel(n){
+  const g=game,gen=genRunLevel(n,g.seed);
+  let total=0;for(const row of gen.rows)for(const ch of row)if(ch!=='.'&&ch!=='S')total++;
+  Object.assign(g,{level:n,t:0,caps:[],bolts:[],booms:[],shots:[],fx:{},odT:0,clearT:0,bricks:[],
+    rows:gen.rows,rowsSpawned:0,levelDescent:gen.descent,levelPar:gen.par,pendingReward:false,
+    levelTotal:total,levelDestroyed:0,topY:BY+4*BH,scrollY:0,cacheY:0});
+  resetBall();dirty=true;
+  const rowsVisible=clamp(gen.rows.length,5,7);
+  while(g.rowsSpawned<rowsVisible&&g.topY>=TOP){g.topY-=BH;spawnLevelRow(g.topY)}
+  g.banner={text:'LEVEL '+n,sub:g.mode==='daily'?today():'',t:2};
+  fire('roundStart',n);
+}
+function spawnLevelRow(y){
+  const g=game;if(g.rowsSpawned>=g.rows.length)return;
+  const row=g.rows[g.rowsSpawned++];
+  [...row].forEach((ch,c)=>{if(ch!=='.')g.bricks.push(mkBrick(c,y,ch,-g.rowsSpawned))});
+  dirty=true;
+}
+function levelComplete(){
+  const g=game;
+  for(const k of g.bricks)if(!k.dead&&k.type!=='s')damage(k,99,true); // sweep: remaining bricks detonate for points
+  const secs=Math.floor(g.t),onPar=secs<=g.levelPar,bnd=band(g.level);
+  const base=Math.round((RUN.levelPayBase+g.level*RUN.levelPayPerLevel)*bnd.payoutMult),parBonus=onPar?Math.round(RUN.parBonus*bnd.payoutMult):0;
+  const x2=g.fx.X2>0?2:1,pay=Math.round(filter('chipPayout',(base+parBonus)*x2,{source:'level'}));
+  g.chips+=pay;g.clearT=1.2;g.slow=.9;sfx.clear();
+  g.banner={text:'LEVEL CLEAR',sub:'+'+fmt(pay)+' CHIPS'+(onPar?'  ·  PAR':''),t:1.2,c:'good'};
+}
+function afterLevelTransition(){
+  const g=game,due=g.justBeatBoss||g.pendingReward||(g.level%RUN.rewardPickEvery===0);
+  g.justBeatBoss=false;g.pendingReward=false;
+  if(g.mode!=='daily'&&due)openRewardPick();else nextStage();
+}
+function nextStage(){
+  const g=game;
+  if(g.pendingStages==null)g.pendingStages=stagesAfter(g.level).filter(s=>!(s==='casino'&&g.mode==='daily'));
+  if(g.pendingStages.length){
+    const s=g.pendingStages.shift();
+    if(s==='boss')return startBoss(pickBossFor(g.level,g));
+    if(s==='casino')return openCasino();
+    if(s==='final')return startBoss('dealer');
+  }
+  g.pendingStages=null;
+  startLevel(g.level+1);
+}
+
+// ---------- run end ----------
 const ENDINGS={
   bust:{title:'EARLY BUST',line:'The house barely looked up.'},
   fold:{title:'FOLDED',line:'A respectable hand, played out.'},
   deep:{title:'DEEP RUN',line:'The pit boss knows your name now.'},
   victory:{title:'VICTORY',line:'You broke the house.'},
 };
-const endingOf=g=>g.won?'victory':g.wave<5?'bust':g.wave<15?'fold':'deep';
+const endingOf=g=>g.won?'victory':g.level<5?'bust':g.level<15?'fold':'deep';
 function runEnd(g){
-  const m=store.meta,rs={score:g.score,bosses:g.stats.bosses,round:g.wave,won:g.won};
-  const pay=Math.round(filter('chipPayout',runPayout(rs),rs))+g.coinChips,end=endingOf(g); // Loan Shark can push this negative
-  m.chips=Math.max(0,m.chips+pay);m.runsPlayed++;m.bestRound=Math.max(m.bestRound,g.wave);m.totalScore+=g.score;if(g.won)m.wins++;
-  m.endingsSeen[end]=(m.endingsSeen[end]||0)+1;
-  g.result={pay,ending:ENDINGS[end],secret:Object.keys(g.beaten).some(k=>BOSSINFO[k].secret),fresh:checkUnlocks(g)};
+  const m=store.meta,end=endingOf(g);
+  // ponytail: Daily is the same seeded challenge for everyone — it doesn't touch the persistent collection
+  if(g.mode!=='daily'){
+    m.runsPlayed++;m.bestRound=Math.max(m.bestRound,g.level);m.totalScore+=g.score;if(g.won)m.wins++;
+    m.endingsSeen[end]=(m.endingsSeen[end]||0)+1;
+  }
+  g.result={chips:g.chips,ending:ENDINGS[end],fresh:g.mode!=='daily'?checkUnlocks(g):[]};
   if(T!==baseTheme())setTheme(baseTheme());
 }

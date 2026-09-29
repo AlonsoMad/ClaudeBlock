@@ -1,5 +1,7 @@
 'use strict';
-// ================= casino: HTML/CSS overlay on top of the canvas (state==='casino') =================
+// ================= casino: HTML/CSS overlay on top of the canvas (state==='casino'), lives inside a run =================
+// ponytail: the roulette/blackjack table numbers (STAR_BET, wager range, itemChance curve) predate this spec and
+// aren't Run-loop tuning — left inline rather than folded into config.js's RUN/PRICES/BANDS.
 const cov=document.getElementById('casino');
 
 // ---------- items: pools, pulls, grants ----------
@@ -10,17 +12,52 @@ const isOwned=it=>!!(store.codex.items[it.id]||{}).owned;
 const eligible=pool=>ITEMS.filter(it=>(!pool||it.pool.includes(pool))&&isUnlocked(it)&&!isOwned(it));
 function pullItem(pool){
   let c=eligible(pool);if(!c.length)c=eligible();if(!c.length)return null;
-  const w=c.map(it=>TIER_W[pool][it.tier]);let t=Math.random()*w.reduce((a,b)=>a+b,0);
+  const w=c.map(it=>pool&&TIER_W[pool]?TIER_W[pool][it.tier]:1);let t=Math.random()*w.reduce((a,b)=>a+b,0);
   return c.find((_,i)=>(t-=w[i])<0)||c[c.length-1];
 }
 function grant(it){
-  const m=store.meta;(store.codex.items[it.id]??={}).owned=1;
-  if(it.kind==='relic'){m.relicsOwned.push(it.id);if(m.relicsEquipped.length<m.relicSlots)m.relicsEquipped.push(it.id)}
-  else if(it.kind==='capsule')m.unlockedCapsules.push(it.cap);
+  const m=store.meta,g=game;(store.codex.items[it.id]??={}).owned=1;
+  if(it.kind==='relic'){
+    m.relicsOwned.push(it.id);
+    if(g&&g.relicsEquipped&&g.relicsEquipped.length<m.relicSlots){g.relicsEquipped.push(it.id);equipRelics(g.relicsEquipped,g.mods)}
+  }else if(it.kind==='capsule')m.unlockedCapsules.push(it.cap);
   else it.apply();
   save();sfx.life();
 }
 function unlockNote(){const f=checkUnlocks(null);if(f.length)cMsg+='  ·  NEW AT THE CASINO: '+f.map(i=>i.name).join(', ')}
+
+// ---------- shelf: priced offers drawn from unlocked-but-not-owned items, + one mystery box (§9.1) ----------
+function genShelf(){
+  const g=game,bnd=band(g.level),disc=(g.mods.firstShelfDiscount&&!g.shelfDiscounted)?1-g.mods.firstShelfDiscount:1;
+  g.shelfDiscounted=true;
+  const pool=ITEMS.filter(it=>isUnlocked(it)&&!isOwned(it)),picked=pool.slice().sort(()=>g.casinoRng()-.5).slice(0,RUN.shelfSize);
+  const offers=picked.map(it=>({id:it.id,price:Math.round(PRICES[it.tier]*bnd.priceMult*disc),bought:false}));
+  offers.push({mystery:true,price:Math.round(PRICES[1]*bnd.priceMult*RUN.mysteryPriceMult*disc),bought:false});
+  return offers;
+}
+function rerollShelf(){
+  const g=game,cost=RUN.rerollBase+RUN.rerollStep*g.rerolls;
+  if(g.chips<cost){cMsg='Not enough chips.';sfx.bad();return}
+  g.chips-=cost;g.rerolls++;g.shelf=genShelf();sfx.menu();cMsg='Rerolled the shelf.';
+}
+function buyShelf(idx){
+  const g=game,offer=g.shelf[+idx];if(!offer||offer.bought)return;
+  if(g.chips<offer.price){cMsg='Not enough chips.';sfx.bad();return}
+  g.chips-=offer.price;offer.bought=true;
+  if(offer.mystery){
+    if(Math.random()<RUN.mysteryHitChance){const it=pullItem();if(it){grant(it);cMsg='Mystery box: '+it.name+'!'}else{g.chips+=offer.price;cMsg='Mystery box: nothing left in the pool, refunded.'}}
+    else{const refund=Math.round(offer.price*RUN.mysteryDudRefund);g.chips+=refund;cMsg='Mystery box: a dud. +'+refund+' chips.'}
+  }else{const it=ITEM[offer.id];grant(it);cMsg='Bought '+it.name+'.'}
+  unlockNote();
+}
+function sellRelic(id){
+  const m=store.meta,g=game,it=ITEM[id];if(!it)return;
+  const oi=m.relicsOwned.indexOf(id);if(oi<0)return;
+  m.relicsOwned.splice(oi,1);(store.codex.items[id]||{}).owned=0;
+  const ei=g.relicsEquipped.indexOf(id);if(ei>=0){g.relicsEquipped.splice(ei,1);equipRelics(g.relicsEquipped,g.mods)}
+  const refund=Math.round(PRICES[it.tier]*RUN.sellRefund);g.chips+=refund;save();
+  cMsg='Sold '+it.name+' for +'+refund+' chips.';
+}
 
 // ---------- roulette: 0-36 + three ★ pockets on a 40-pocket wheel ----------
 const STAR=-1,STAR_BET=15;
@@ -38,11 +75,11 @@ console.assert(POCKETS.length===40&&POCKETS.filter(n=>n===STAR).length===3&&new 
 for(const v of[...Object.keys(BETS),'0','17','36']){const[,pay,win]=betOf(v);console.assert(Math.abs(POCKETS.filter(win).length*(pay+1)/40-.9)<1e-9,'roulette odds',v)}
 const pocketCol=n=>n===STAR?'#d4a017':n===0?'#1e8449':REDS.includes(n)?'#b8322a':'#1d1d1d';
 
-let cTab='roulette',cMsg='',stake=25,wheelRot=0,spinLast=null,busy=false;
+let cTab='shelf',cMsg='',stake=25,wheelRot=0,spinLast=null,busy=false;
 function spin(v){
-  const m=store.meta,cost=v==='star'?STAR_BET:stake;
-  if(m.chips<cost){cMsg='Not enough chips.';sfx.bad();return}
-  m.chips-=cost;m.casino.spins++;save();
+  const g=game,cost=v==='star'?STAR_BET:stake;
+  if(g.chips<cost){cMsg='Not enough chips.';sfx.bad();return}
+  g.chips-=cost;store.meta.casino.spins++;save();
   let i=Math.random()*40|0;
   if(v==='star'){ // Loaded Dice reaches in here; at 3/40 this is exactly a fair uniform spin
     const hit=Math.random()<filter('rouletteItemOdds',3/40),c=POCKETS.map((_,j)=>j).filter(j=>(POCKETS[j]===STAR)===hit);
@@ -56,13 +93,13 @@ function spin(v){
   setTimeout(()=>{busy=false;settleSpin(v,POCKETS[i],cost);renderCasino()},3100);
 }
 function settleSpin(v,n,cost){
-  const m=store.meta,lbl=n===STAR?'★':n+(n===0?' GREEN':REDS.includes(n)?' RED':' BLACK');spinLast=n;
+  const g=game,lbl=n===STAR?'★':n+(n===0?' GREEN':REDS.includes(n)?' RED':' BLACK');spinLast=n;
   if(v==='star'){
     if(n!==STAR){cMsg=lbl+' — no star this time.';sfx.bad()}
-    else{const it=pullItem('roulette');if(it){grant(it);cMsg=`★ — you won ${it.name}!`}else{m.chips+=STAR_BET*10;cMsg='★ — nothing left in the pool, +150 chips.';sfx.clear()}}
+    else{const it=pullItem('roulette');if(it){grant(it);cMsg=`★ — you won ${it.name}!`}else{g.chips+=STAR_BET*10;cMsg='★ — nothing left in the pool, +150 chips.';sfx.clear()}}
   }else{
     const[name,pay,win]=betOf(v);
-    if(win(n)){const w=cost*(pay+1);m.chips+=w;cMsg=`${lbl} — ${name} pays ${fmt(w)} chips!`;sfx.clear()}
+    if(win(n)){const w=cost*(pay+1);g.chips+=w;cMsg=`${lbl} — ${name} pays ${fmt(w)} chips!`;sfx.clear()}
     else{cMsg=`${lbl} — ${name} loses.`;sfx.bad()}
   }
   unlockNote();save();
@@ -80,14 +117,14 @@ function drawCard(){
   return shoe.pop();
 }
 function deal(){
-  const m=store.meta;if(m.chips<wager){cMsg='Not enough chips.';sfx.bad();return}
-  m.chips-=wager;save();hand={w:wager,p:[drawCard(),drawCard()],d:[drawCard(),drawCard()],done:false};
+  const g=game;if(g.chips<wager){cMsg='Not enough chips.';sfx.bad();return}
+  g.chips-=wager;save();hand={w:wager,p:[drawCard(),drawCard()],d:[drawCard(),drawCard()],done:false};
   if(natural(hand.p)||natural(hand.d))settle();else cMsg='Hit or stand?';
 }
 function hit(){hand.p.push(drawCard());const v=handVal(hand.p);if(v>21)settle();else if(v===21)stand()}
 function stand(){while(handVal(hand.d)<17)hand.d.push(drawCard());settle()}
 function settle(){
-  const m=store.meta,c=m.casino,w=hand.w,p=handVal(hand.p),d=handVal(hand.d),pn=natural(hand.p),dn=natural(hand.d);
+  const g=game,c=store.meta.casino,w=hand.w,p=handVal(hand.p),d=handVal(hand.d),pn=natural(hand.p),dn=natural(hand.d);
   let back=0,pull=false,why;
   if(p>21)why='Bust.';
   else if(pn&&!dn){back=w*2.5;pull=true;why='BLACKJACK!'}
@@ -95,7 +132,7 @@ function settle(){
   else if(d>21||p>d){back=w*2;pull=Math.random()<itemChance(w);why=d>21?'Dealer busts — you win!':'You win!'}
   else if(p===d){back=w;why='Push.'}
   else why='Dealer wins.';
-  back=Math.floor(back);hand.done=true;m.chips+=back;c.blackjackHands++;c.blackjackNet+=back-w;if(back>w)c.blackjackWins++;
+  back=Math.floor(back);hand.done=true;g.chips+=back;c.blackjackHands++;c.blackjackNet+=back-w;if(back>w)c.blackjackWins++;
   cMsg=why+' '+(back>w?'+'+fmt(back-w)+' chips.':back===w?'Wager returned.':'−'+fmt(w)+' chips.');
   const it=pull&&pullItem('blackjack');
   if(it){grant(it);cMsg+=`  ·  and ${it.name}!`}else if(back>w)sfx.clear();else if(back<w)sfx.bad();
@@ -106,6 +143,18 @@ function settle(){
 const card=(it,cls='',act='',extra='')=>`<div class="item t${it.tier} ${cls}" ${act?`data-act="${act}" data-v="${it.id}"`:''}>
   <b>${it.name}</b><i>${TIERN[it.tier]} ${it.kind.toUpperCase()}</i><p>${it.info}</p>${extra}</div>`;
 const CTABS={
+  shelf(){
+    const g=game;
+    const offers=g.shelf.map((o,i)=>{
+      if(o.mystery)return`<div class="item t2 ${o.bought?'dim':''}"><b>MYSTERY BOX</b><i>UNKNOWN</i><p>A random item you don't own yet. Sometimes a dud.</p>
+        ${o.bought?'<em>BOUGHT</em>':`<button data-act="buyshelf" data-v="${i}">BUY · ${o.price}</button>`}</div>`;
+      const it=ITEM[o.id];
+      return card(it,o.bought?'dim':'','',o.bought?'<em>BOUGHT</em>':`<button data-act="buyshelf" data-v="${i}">BUY · ${o.price}</button>`);
+    }).join('');
+    const rerollCost=RUN.rerollBase+RUN.rerollStep*g.rerolls;
+    return`<div class="panel wide"><div class="lbl">THE SHELF · resets every visit</div><div class="grid">${offers}</div>
+      <div class="row"><button data-act="reroll">REROLL SHELF · ${rerollCost}</button><span class="dim">Reroll only touches these priced offers, not your Loadout.</span></div></div>`;
+  },
   roulette(){
     let felt=`<button data-act="spin" data-v="0" class="grn" style="grid-column:1;grid-row:1/4">0</button>`;
     for(let c=0;c<12;c++)for(let r=0;r<3;r++){const n=3*c+3-r;felt+=`<button data-act="spin" data-v="${n}" class="${REDS.includes(n)?'red':'blk'}" style="grid-column:${c+2};grid-row:${r+1}">${n}</button>`}
@@ -135,49 +184,65 @@ const CTABS={
         Item chance on a regular win at this wager: <b class="gold">${Math.round(itemChance(wager)*100)}%</b> · ${eligible('blackjack').length} items left in the blackjack pool · leans Rare & Legendary.</p></div>`;
   },
   loadout(){
-    const m=store.meta,owned=m.relicsOwned.map(id=>ITEM[id]).filter(Boolean);
-    return `<div class="panel wide"><div class="lbl">RELICS EQUIPPED ${m.relicsEquipped.length} / ${m.relicSlots} · click to equip or unequip · they apply to your next Run</div>
-      <div class="grid">${owned.length?owned.map(it=>card(it,m.relicsEquipped.includes(it.id)?'on':'','equip')).join(''):'<p class="dim">No relics yet. Win some at the tables.</p>'}</div>
+    const g=game,owned=store.meta.relicsOwned.map(id=>ITEM[id]).filter(Boolean);
+    return `<div class="panel wide"><div class="lbl">RELICS EQUIPPED ${g.relicsEquipped.length} / ${store.meta.relicSlots} · click to equip or unequip, free and instant</div>
+      <div class="grid">${owned.length?owned.map(it=>card(it,g.relicsEquipped.includes(it.id)?'on':'','equip',
+        `<button data-act="sell" data-v="${it.id}">SELL · +${Math.round(PRICES[it.tier]*RUN.sellRefund)}</button>`)).join(''):'<p class="dim">No relics yet. Win some at the tables or the shelf.</p>'}</div>
       <div class="lbl">CAPSULES IN YOUR RUN DROP POOL</div>
-      <div class="caps">${m.unlockedCapsules.map(k=>`<span><i class="cap" style="background:${T[CAPS[k].k]}">${CAPS[k].l}</i>${CAPS[k].n}</span>`).join('')}</div></div>`;
+      <div class="caps">${store.meta.unlockedCapsules.map(k=>`<span><i class="cap" style="background:${T[CAPS[k].k]}">${CAPS[k].l}</i>${CAPS[k].n}</span>`).join('')}</div></div>`;
   },
   codex(){
     const u=ITEMS.filter(isUnlocked).length,o=ITEMS.filter(isOwned).length;
     return `<div class="panel wide"><div class="lbl">CODEX · FOUND ${u} / ${ITEMS.length} · OWNED ${o}</div><div class="grid codex">${ITEMS.map(it=>
       !isUnlocked(it)?`<div class="item locked"><b>?</b><p>${it.hint||''}</p></div>`:
-      card(it,isOwned(it)?'':'dim','',isOwned(it)?'<em class="good">OWNED</em>':`<em>IN ${it.pool.join(' / ').toUpperCase()}</em>`+
-        (it.directBuy?`<button data-act="buy" data-v="${it.id}">BUY · ${it.directBuy}</button>`:''))).join('')}</div></div>`;
+      card(it,isOwned(it)?'':'dim','',isOwned(it)?'<em class="good">OWNED</em>':`<em>IN ${it.pool.join(' / ').toUpperCase()}</em>`)).join('')}</div></div>`;
   },
 };
 function renderCasino(){
-  const tab=(id,n)=>`<button data-act="tab" data-v="${id}" class="${cTab===id?'on':''}">${n}</button>`;
+  const g=game,tab=(id,n)=>`<button data-act="tab" data-v="${id}" class="${cTab===id?'on':''}">${n}</button>`;
   cov.classList.toggle('busy',busy);
-  cov.innerHTML=`<div class="top"><h1>CASINO</h1>${tab('roulette','ROULETTE')}${tab('blackjack','BLACKJACK')}${tab('loadout','LOADOUT')}${tab('codex','CODEX')}
-    <div class="chips">◉ ${fmt(store.meta.chips)} <small>CHIPS</small></div></div>
+  cov.innerHTML=`<div class="top"><h1>CASINO</h1>${tab('shelf','SHELF')}${tab('roulette','ROULETTE')}${tab('blackjack','BLACKJACK')}${tab('loadout','LOADOUT')}${tab('codex','CODEX')}
+    <div class="chips">◉ ${fmt(g.chips)} <small>CHIPS</small></div></div>
     <div class="body">${CTABS[cTab]()}</div>
-    <div class="foot"><div class="msg">${cMsg}</div><button data-act="menu">MENU · ESC</button><button class="go" data-act="play">PLAY RUN ▶</button></div>`;
+    <div class="foot"><div class="msg">${cMsg}</div><button class="go" data-act="leave">LEAVE  ·  LEVEL ${g.level+1} ▶</button></div>`;
 }
 const ACT={
   tab:v=>{cTab=v},stake:v=>{stake=+v},spin,deal,hit,stand,
   wager:v=>{wager=clamp(wager+ +v,10,200)},
+  buyshelf:buyShelf,reroll:rerollShelf,sell:sellRelic,
   equip:id=>{
-    const m=store.meta,e=m.relicsEquipped,i=e.indexOf(id);
-    if(i>=0)e.splice(i,1);else if(e.length<m.relicSlots)e.push(id);else{cMsg='All relic slots are full — unequip one first.';return}
-    save();equipRelics(e,null);
+    const g=game,e=g.relicsEquipped,i=e.indexOf(id);
+    if(i>=0)e.splice(i,1);else if(e.length<store.meta.relicSlots)e.push(id);else{cMsg='All relic slots are full — unequip one first.';return}
+    equipRelics(e,g.mods);
   },
-  buy:id=>{const it=ITEM[id],m=store.meta;if(m.chips<it.directBuy){cMsg='Not enough chips.';sfx.bad();return}m.chips-=it.directBuy;grant(it);cMsg=`Bought ${it.name}.`},
-  menu:()=>{state='menu'},play:()=>newGame('endless'),
+  leave:()=>{state='play';nextStage()},
 };
 cov.addEventListener('click',e=>{
   const el=e.target.closest('[data-act]');if(!el||busy||el.disabled)return;
   audioInit();sfx.menu();ACT[el.dataset.act](el.dataset.v);
   if(state==='casino'&&!busy)renderCasino();
 });
-function openCasino(){
-  state='casino';equipRelics(store.meta.relicsEquipped,null); // equipped relics like Loaded Dice reach into the tables
+// Codex is reachable from Options too (Casino itself is in-run only) — reuses the codex tab's markup
+function openCodex(){
+  state='codex';
   const s=cov.style;
   for(const k of['text','sub','label','a1','a2','gold','good','bad','panel'])s.setProperty('--'+k,T[k]);
   s.setProperty('--bg',T.bg[0]);s.setProperty('--head',T.head);s.setProperty('--body',T.body);s.setProperty('--hw',T.hw);
-  cMsg=`Welcome to the house. ${store.meta.relicsEquipped.length} relic${store.meta.relicsEquipped.length===1?'':'s'} equipped for your next run.`;
+  cov.innerHTML=`<div class="top"><h1>CODEX</h1><div class="chips"></div></div><div class="body">${CTABS.codex()}</div>
+    <div class="foot"><div class="msg"></div><button class="go" data-act="codexback">BACK · ESC</button></div>`;
+}
+const ACT_CODEX={codexback:()=>{state='options'}};
+cov.addEventListener('click',e=>{
+  if(state!=='codex')return;
+  const el=e.target.closest('[data-act]');if(!el)return;
+  audioInit();sfx.menu();(ACT_CODEX[el.dataset.act]||(()=>{}))();
+});
+function openCasino(){
+  const g=game;state='casino';g.shelf=genShelf();g.rerolls=0;cTab='shelf';
+  fire('casinoEntered',g);
+  const s=cov.style;
+  for(const k of['text','sub','label','a1','a2','gold','good','bad','panel'])s.setProperty('--'+k,T[k]);
+  s.setProperty('--bg',T.bg[0]);s.setProperty('--head',T.head);s.setProperty('--body',T.body);s.setProperty('--hw',T.hw);
+  cMsg=`Welcome to the house. ${g.relicsEquipped.length} relic${g.relicsEquipped.length===1?'':'s'} equipped.`;
   renderCasino();
 }

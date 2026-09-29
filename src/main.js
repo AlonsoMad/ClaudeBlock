@@ -1,11 +1,13 @@
 'use strict';
 let last=performance.now(),acc=0;
-const SCREENS={menu:drawMenu,howto:drawHowto,themes:drawThemes,options:drawOptions,records:drawRecords,casino:()=>{}}; // casino draws as an HTML overlay
+// casino & codex draw as an HTML overlay
+const SCREENS={menu:drawMenu,themes:drawThemes,options:drawOptionsMenu,'opt-audio':drawOptAudio,'opt-video':drawOptVideo,
+  'opt-controls':drawControls,records:drawRecords,loadout:drawLoadout,reward:drawReward,casino:()=>{},codex:()=>{}};
 function frame(now){
   const dt=Math.min(.1,(now-last)/1000),tm=now/1000;last=now;
   if(state==='play'){acc+=dt;while(acc>=STEP&&state==='play'){update(STEP);acc-=STEP}}else acc=0;
   if(state==='over')overT-=dt;
-  cov.hidden=state!=='casino';
+  cov.hidden=state!=='casino'&&state!=='codex';
   ctx.setTransform(K,0,0,K,0,0);
   drawBackdrop(dt);
   if(SCREENS[state])SCREENS[state](tm);else{drawGame(tm);if(state!=='play')drawOverlay(tm)}

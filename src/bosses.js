@@ -1,10 +1,19 @@
 'use strict';
 const BOSSINFO={
-  overseer:{name:'THE OVERSEER',secret:0,hint:'Guards the end of the Campaign and returns every 4th round of a Run. Its eye never leaves you. Its shots stun your paddle.',riddle:''},
-  mirror:{name:'THE MIRROR',secret:1,hint:'Summoned by 8 PERFECT hits in a row. A pong duel: score 6 goals past its paddle into the ceiling.',riddle:'Strike the heart, again and again and again... and something will strike back.'},
-  spark:{name:'THE SPARK',secret:1,hint:'Wakes when a chain reaches 60 hits. Break its spinning rays to reach the core.',riddle:'Keep the fire going long enough and it takes a shape.'},
-  dealer:{name:'THE DEALER',secret:0,hint:'Waits at Round 25 of every Run. The house itself. Beat it and the run is yours.',riddle:''},
+  overseer:{name:'THE OVERSEER',secret:0,hint:'Guards the boss levels of a Run. Its eye never leaves you. Its shots stun your paddle.',riddle:''},
+  mirror:{name:'THE MIRROR',secret:0,hint:'A pong duel: score goals past its paddle into the ceiling.',riddle:''},
+  spark:{name:'THE SPARK',secret:0,hint:'Break its spinning rays to reach the core.',riddle:''},
+  dealer:{name:'THE DEALER',secret:0,hint:'Waits at Level 25 of every Run. The house itself. Beat it and the run is yours.',riddle:''},
 };
+// boss stages: fixed slots plus a pool drawn by tier, no repeat back-to-back (§12.1)
+const BOSS_SCHEDULE={5:'overseer'};
+const BOSS_POOL=[{k:'overseer',tier:1},{k:'mirror',tier:2},{k:'spark',tier:2}];
+function pickBossFor(level,g){
+  if(level===RUN.finalLevel)return'dealer';
+  if(BOSS_SCHEDULE[level])return BOSS_SCHEDULE[level];
+  const pool=BOSS_POOL.filter(b=>b.k!==g.lastBoss);
+  return pool[Math.floor(Math.random()*pool.length)].k;
+}
 
 // ---------- bosses ----------
 const BOSS={
@@ -73,35 +82,40 @@ const BOSS={
   },
 };
 function mkArm(i,j){const hp=j===0?2:1;return{x:-99,y:-99,w:22,h:22,hp,max:hp,type:'n',r:1e4+i*9,c:1e4+j*9,dyn:true,ray:i,seg:j}}
+// boss stages have no wall behind them: no more save/restore of the level's bricks
 function startBoss(kind){
   const g=game;
-  g.saved=g.bricks.filter(b=>!b.dead);g.bricks=[];g.caps=[];g.booms=[];g.shots=[];g.bolts=[];
-  const b=BOSS[kind].init(g.endless?Math.floor(g.wave/4):1);
-  b.hp=b.max=Math.round(b.hp*g.mods.bossHpMult);
+  g.bricks=[];g.caps=[];g.booms=[];g.shots=[];g.bolts=[];
+  const idx=Math.max(1,Math.floor(g.level/RUN.bossEvery));
+  const b=BOSS[kind].init(idx);
+  b.hp=b.max=Math.round(b.hp*g.mods.bossHpMult*band(g.level).bossHpMult);
   Object.assign(b,{k:kind,shape:BOSS[kind].shape||kind,name:BOSSINFO[kind].name,enter:2.2,flash:0,icd:0,t:0,final:kind==='dealer'});g.boss=b;
   if(kind==='spark')g.bricks=b.arms.slice();
   if(kind==='mirror')for(const c of[2,5,8,11])g.bricks.push(mkBrick(c,330,'S',500));
-  if(kind!=='overseer')g.met[kind]=true;
+  // every arena carries >=1 special brick (a harder bounce than a straight boss shot, §12.3)
+  g.bricks.push(mkBrick(kind==='mirror'?4:6,kind==='mirror'?330:BY+2*BH,'$',600));
   const cx=store.codex[kind]||(store.codex[kind]={seen:0,beat:0});cx.seen++;save();
   g.banner={text:'WARNING',sub:b.name+' APPROACHES',t:2.2,c:'bad'};sfx.alarm();g.shake=10;dirty=true;
 }
 const bossCenter=b=>b.k==='mirror'?[b.x,b.y+b.h/2]:[b.x,b.y];
 function hurtBoss(n,x,y){
   const g=game,b=g.boss;if(!b||b.enter>0||b.hp<=0)return;
+  if(g.fx.X2>0)n*=2; // multiplier brick: doubles boss damage in an arena (§7)
   b.hp-=n;b.flash=.08;addScore(150*n);if(once('bh',50))sfx.bossHit();
   if(x!==undefined)burst(x,y,T.a2,10,220,.4,3);
   if(n>=1){g.combo++;g.comboT=2+g.mods.comboTimeBonus;g.bestCombo=Math.max(g.bestCombo,g.combo)}
   if(b.hp<=0)bossDown();
 }
 function bossDown(){
-  const g=game,b=g.boss,mult=g.endless?Math.max(1,Math.floor(g.wave/4)):1,bonus=(b.k==='overseer'?15000:25000)*mult,[bx,by]=bossCenter(b);
-  addScore(bonus);store.codex[b.k].beat++;save();g.stats.bosses++;g.beaten[b.k]=1;fire('bossDefeated',b);
+  const g=game,b=g.boss,idx=Math.max(1,Math.floor(g.level/RUN.bossEvery)),bonus=(b.k==='overseer'?15000:25000)*idx,[bx,by]=bossCenter(b);
+  addScore(bonus);store.codex[b.k].beat++;save();g.stats.bosses++;g.lastBoss=b.k;
+  const pay=Math.round(filter('chipPayout',RUN.bossPayBase*idx,{source:'boss'}));g.chips+=pay;
+  fire('bossDefeated',b);
   for(const c of[T.a1,T.a2,T.gold])burst(bx,by,c,60,520,1.1,4,120);
   g.shake=26;g.slow=1.2;sfx.bossDie();
-  g.bricks=g.saved||[];g.saved=null;g.shots=[];g.boss=null;dirty=true;
-  if(b.final){g.victory=3.2;g.banner={text:'VICTORY',sub:(g.endless?'the house falls':'the campaign is yours')+'  ·  +'+fmt(bonus),t:3.2,c:'good'}}
-  else g.banner={text:'DEFEATED',sub:b.name+'  ·  +'+fmt(bonus),t:2.6,c:'good'};
-  if(!b.final&&!g.endless&&!g.bricks.some(k=>k.type!=='s'))levelClear();
+  g.shots=[];g.boss=null;g.bricks=[];dirty=true;g.justBeatBoss=true;
+  if(b.final){g.victory=3.2;g.banner={text:'VICTORY',sub:'the house falls  ·  +'+fmt(bonus)+'  ·  +'+fmt(pay)+' CHIPS',t:3.2,c:'good'}}
+  else{g.clearT=1.6;g.banner={text:'DEFEATED',sub:b.name+'  ·  +'+fmt(bonus)+'  ·  +'+fmt(pay)+' CHIPS',t:1.6,c:'good'}}
 }
 // moving rect: resolve by least penetration, not by ball direction
 function rectBounce(b,x,y,w,h){

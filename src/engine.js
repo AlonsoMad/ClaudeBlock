@@ -2,34 +2,25 @@
 
 function newGame(mode){
   lastMode=mode;parts=[];
-  game={mode,endless:mode!=='campaign',score:0,lives:3,level:1,wave:1,combo:0,comboT:0,bestCombo:0,od:0,odT:0,nextLife:30000,
+  game={mode,score:0,lives:RUN.startLives,level:0,combo:0,comboT:0,bestCombo:0,od:0,odT:0,nextLife:30000,
     shake:0,slow:0,pflash:0,stun:0,fx:{},banner:null,bricks:[],balls:[],caps:[],bolts:[],booms:[],shots:[],flashes:[],texts:[],
-    t:0,playT:0,laserCd:0,shield:false,clearT:0,victory:0,won:false,boss:null,saved:null,pendingBoss:null,met:{},perfStreak:0,
-    stats:{bricks:0,perfects:0,bosses:0},scrollY:0,cacheY:0,waitLaunch:true,
-    mods:Object.assign({},MOD_DEFAULTS),rs:{},beaten:{},bestPerf:0,coinChips:0,nextCap:null,dbl:false,key:false,result:null,
+    t:0,playT:0,laserCd:0,shield:false,clearT:0,victory:0,won:false,boss:null,perfStreak:0,lastBoss:null,
+    stats:{bricks:0,perfects:0,bosses:0},scrollY:0,cacheY:0,waitLaunch:true,chips:0,pendingStages:null,justBeatBoss:false,
+    mods:Object.assign({},MOD_DEFAULTS),rs:{},bestPerf:0,nextCap:null,dbl:false,key:false,result:null,
     seed:mode==='daily'?hashStr(today()):(Math.random()*1e9)|0,p:{x:W/2,w:110,y:672,h:14,vx:0}};
   clearHooks();
-  if(mode==='endless')runSetup();
-  if(game.endless)startEndless();else loadLevel(1);
+  runSetup();
   fire('runStart',game);
-  state='play';
+  if(game.mode!=='daily'&&store.meta.relicsOwned.length){loadoutIdx=0;state='loadout'}
+  else{startLevel(1);state='play'}
 }
-function loadLevel(n){
-  const g=game;
-  Object.assign(g,{level:n,t:0,caps:[],bolts:[],booms:[],shots:[],fx:{},odT:0,clearT:0,bricks:[]});
-  resetBall();dirty=true;
-  if(n>=CAMPAIGN_LEN){startBoss('overseer');g.boss.final=true;return}
-  const[name,rows]=n<=LEVELS.length?LEVELS[n-1]:genLevel(n);
-  rows.forEach((row,r)=>[...row].forEach((ch,c)=>{if(ch!=='.')g.bricks.push(mkBrick(c,BY+r*BH,ch,r))}));
-  g.banner={text:'SECTOR '+String(n).padStart(2,'0'),sub:name,t:2};
-}
-const speed=()=>{const g=game,lv=g.endless?Math.min(15,g.wave+1):g.level;return Math.min(640,410+lv*10)*(1+Math.min(.3,g.t*.004))*(g.fx.S>0?.7:1)};
+const speed=()=>{const g=game;return Math.min(640,410+Math.min(30,g.level+1)*10)*(1+Math.min(.3,g.t*.004))*(g.fx.S>0?.7:1)};
 function resetBall(){
   const g=game,n=g.mods.startBallCount;g.waitLaunch=true;g.balls=[];
   for(let i=0;i<n;i++)g.balls.push({x:g.p.x,y:g.p.y-R,dx:0,dy:-1,stuck:true,off:n>1?(i-(n-1)/2)*30:rand(-15,15),trail:[],s:speed()});
 }
 const comboMult=()=>Math.min(game.mods.comboMultCap,1+Math.floor(game.combo/5))*(game.odT>0?2:1);
-const bcol=k=>k.type==='x'?T.bx:k.type==='q'?T.q[0]:k.type==='s'?T.steel[1]:T.hp[Math.min(4,k.max)];
+const bcol=k=>k.type==='x'?T.bx:k.type==='q'?T.q[0]:k.type==='s'?T.steel[1]:k.type==='d'?T.gold:k.type==='m'?T.a2:k.type==='e'?T.bad:T.hp[Math.min(4,k.max)];
 
 function addScore(n){
   const g=game;g.score+=Math.round(n);
@@ -59,6 +50,7 @@ function damage(k,amt,boom){
 }
 function destroy(k){
   const g=game;k.dead=true;if(!k.dyn)dirty=true;
+  if(!g.boss&&k.type!=='s')g.levelDestroyed=(g.levelDestroyed||0)+1;
   g.combo++;g.comboT=2+g.mods.comboTimeBonus;g.bestCombo=Math.max(g.bestCombo,g.combo);g.stats.bricks++;
   const mult=comboMult(),pts=(k.type==='x'?100:k.type==='s'?250:50*k.max)*mult,cx=k.x+k.w/2,cy=k.y+k.h/2;
   addScore(pts);if(!g.mods.hudMinimal&&(mult>1||pts>=200))pop(cx,cy,'+'+fmt(pts),mult>=4?T.gold:T.text,mult>=4?18:14);
@@ -66,25 +58,21 @@ function destroy(k){
   burst(cx,cy,bcol(k),14,240,.55,3);
   if(once('brick',15))sfx.brick(g.combo);
   if(k.type==='x')g.booms.push({k,t:.07});
+  if(k.type==='d'){const pay=Math.round(filter('chipPayout',RUN.chipBrickPay,{source:'brick'}));g.chips+=pay;pop(cx,cy,'+'+pay+' CHIPS',T.gold,14)}
+  else if(k.type==='m'){g.fx.X2=10;pop(cx,cy,'×2 CHIPS/DAMAGE',T.gold,16)}
+  else if(k.type==='e'){g.pendingReward=true;pop(cx,cy,'REWARD!',T.gold,18)}
   if((k.type==='q'||Math.random()<(k.type==='s'?.3:.1)*g.mods.dropChanceMult+g.mods.dropChanceBonus)&&g.caps.length<6){
     let t=pickCap();if(k.type==='q'&&g.key){g.key=false;while(t==='H')t=rollCap()}
     const vy=150*g.mods.capFallMult;g.caps.push({x:cx,y:cy,t,vy});
     if(g.dbl){g.dbl=false;g.caps.push({x:cx+26,y:cy,t,vy})}
   }
   fire('brickDestroyed',k);
-  if(g.combo>=g.mods.sparkCombo&&!g.met.spark&&!g.boss)g.pendingBoss='spark'; // secret
-  if(!g.endless&&!g.boss&&!g.clearT&&!g.bricks.some(b=>!b.dead&&b.type!=='s'))levelClear();
 }
 function explode(k){
   const g=game,cx=k.x+k.w/2,cy=k.y+k.h/2;
   g.shake=Math.max(g.shake,10);if(once('boom',60))sfx.boom();
   burst(cx,cy,T.bx,30,420,.7,4,0);burst(cx,cy,T.gold,16,200,.5,3,0);
   for(const b of g.bricks)if(!b.dead&&Math.abs(b.r-k.r)<=1&&Math.abs(b.c-k.c)<=1)damage(b,99,true);
-}
-function levelClear(){
-  const g=game,secs=Math.floor(g.t),bonus=1000*g.level+Math.max(0,90-secs)*50;
-  addScore(bonus);g.clearT=2.8;g.slow=.9;sfx.clear();
-  g.banner={text:'SECTOR CLEAR',sub:`+${fmt(bonus)} bonus  ·  ${secs}s`,t:2.8,c:'good'};
 }
 function loseLife(){
   const g=game;
@@ -106,7 +94,7 @@ function gameOver(){
   if(state==='over')return;
   const g=game,s=store.stats;state='over';overT=1.2;
   s.games++;s.time+=Math.round(g.playT);s.bricks+=g.stats.bricks;s.perfects+=g.stats.perfects;s.bosses+=g.stats.bosses;s.bestChain=Math.max(s.bestChain,g.bestCombo);
-  fire('runEnd',g);if(g.mode==='endless')runEnd(g);save();
+  fire('runEnd',g);runEnd(g);save();
 }
 
 function applyCap(t){
@@ -114,7 +102,7 @@ function applyCap(t){
   if(t==='E')g.fx.H=0;if(t==='H'&&!anchored)g.fx.E=0;
   if(d.d&&!anchored)g.fx[t]=d.d*m.capDurationMult*(t==='C'?m.catchDurationMult:t==='H'?m.shrinkDurationMult:1);
   if(t==='M')split();else if(t==='B')g.shield=m.shieldHits;else if(t==='U'){g.lives++;sfx.life()}
-  else if(t==='N')nuke();else if(t==='V')g.shots=[];else if(t==='O')g.coinChips+=10;else if(t==='D')g.dbl=true;else if(t==='K')g.key=true;
+  else if(t==='N')nuke();else if(t==='V')g.shots=[];else if(t==='O'){const pay=Math.round(filter('chipPayout',RUN.capsuleCoinPay,{source:'capsule'}));g.chips+=pay}else if(t==='D')g.dbl=true;else if(t==='K')g.key=true;
   if(t==='H')sfx.bad();else if(t!=='U')sfx.power();
   pop(g.p.x,g.p.y-24,anchored?'ANCHORED':d.n,c,18);addScore(50);burst(g.p.x,g.p.y,c,20,250,.5,3);
   fire('capsulePicked',t);
@@ -139,10 +127,9 @@ function paddleHit(b){
   b.dx=Math.sin(a);b.dy=-Math.cos(a);b.y=p.y-R;g.pflash=.15;
   if(Math.abs(off)<.12){
     g.perfStreak++;g.stats.perfects++;g.bestPerf=Math.max(g.bestPerf,g.perfStreak);
-    g.od=Math.min(100,g.od+(g.odT>0?0:8*g.mods.overdriveFillMult));addScore(25*(g.endless?g.wave:g.level));
+    g.od=Math.min(100,g.od+(g.odT>0?0:8*g.mods.overdriveFillMult));addScore(25*g.level);
     pop(b.x,p.y-20,g.perfStreak>1?'PERFECT ×'+g.perfStreak:'PERFECT',T.good,16);
     burst(b.x,p.y,T.good,16,260,.5,2);sfx.perfect();
-    if(g.perfStreak>=g.mods.mirrorStreak&&!g.met.mirror&&!g.boss)g.pendingBoss='mirror'; // secret
   }else{g.perfStreak=0;sfx.paddle()}
   if(g.fx.C>0){b.stuck=true;b.off=clamp(b.x-p.x,-p.w/2+R,p.w/2-R)}
   fire('paddleHit',b,Math.abs(off)<.12);
@@ -196,8 +183,7 @@ function update(dt){
   const g=game,real=dt;g.playT+=real;
   if(g.slow>0){g.slow-=real;dt*=.3}
   if(g.victory>0&&(g.victory-=real)<=0){addScore(g.lives*5000);g.won=true;gameOver();return}
-  if(g.clearT>0&&(g.clearT-=real)<=0){loadLevel(g.level+1);return}
-  if(g.pendingBoss&&!g.boss&&!(g.clearT>0)&&!(g.victory>0)){startBoss(g.pendingBoss);g.pendingBoss=null}
+  if(g.clearT>0&&(g.clearT-=real)<=0){afterLevelTransition();return}
   if(g.banner&&(g.banner.t-=real)<=0)g.banner=null;
   g.shake=Math.max(0,g.shake-real*40);g.pflash-=real;g.t+=dt;
   for(const k in g.fx)g.fx[k]-=dt;
@@ -242,16 +228,18 @@ function update(dt){
   for(const e of g.booms)e.t-=dt;
   const ready=g.booms.filter(e=>e.t<=0);g.booms=g.booms.filter(e=>e.t>0);
   for(const e of ready)explode(e.k);
-  // endless: the wall descends
-  if(g.endless&&!g.boss&&!(g.victory>0)){
+  // the wall descends; new rows feed in from the level's row budget until it runs out
+  if(!g.boss&&!(g.victory>0)&&!(g.clearT>0)){
     let low=0;for(const k of g.bricks)if(!k.dead&&k.type!=='s')low=Math.max(low,k.y+k.h);
-    let v=g.waitLaunch?0:Math.min(30,8+g.wave*1.3);
-    if(!g.waitLaunch&&low<280)v=70; // catch-up when the board runs thin
+    let v=g.waitLaunch?0:g.levelDescent;
+    if(!g.waitLaunch&&low<280&&g.rowsSpawned<g.rows.length)v=70; // catch-up when the board runs thin
     v*=g.mods.wallDescentMult*(g.fx.T>0?.5:1)*(g.fx.I>0?0:1);
     if(v){const d=v*dt;for(const k of g.bricks)k.y+=d;g.topY+=d;g.scrollY+=d}
-    while(g.topY>=TOP&&!g.pendingBoss){g.topY-=BH;spawnRow(g.topY)}
+    while(g.topY>=TOP&&g.rowsSpawned<g.rows.length){g.topY-=BH;spawnLevelRow(g.topY)}
     for(const k of g.bricks)if(k.type==='s'&&k.y>DANGER)k.dead=true;
     if(low>=DANGER){breach();if(state!=='play')return}
+    const destructibleLeft=g.bricks.filter(b=>!b.dead&&b.type!=='s').length;
+    if(g.rowsSpawned>=g.rows.length&&destructibleLeft<=RUN.sweepAt)levelComplete();
   }
   g.bricks=g.bricks.filter(b=>!b.dead);
   // fx
