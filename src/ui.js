@@ -55,14 +55,6 @@ function press(e){
       else if(c==='KeyR'&&afterGame)newGame(lastMode);
       else if(back||ok)state='menu';
       break;
-    case'loadout':{
-      const owned=store.meta.relicsOwned;
-      if(!owned.length){if(ok||back)confirmLoadout();break}
-      if(up||dn){loadoutIdx=(loadoutIdx+(up?-1:1)+owned.length+1)%(owned.length+1);sfx.menu()}
-      else if(ok){if(loadoutIdx>=owned.length)confirmLoadout();else{toggleLoadoutRelic(owned[loadoutIdx]);sfx.select()}}
-      else if(back)confirmLoadout();
-      break;
-    }
     case'reward':
       if(lf||rt){game.rewardSel=(game.rewardSel+(lf?-1:1)+game.rewardOptions.length)%game.rewardOptions.length;sfx.menu()}
       else if(ok)pickReward(game.rewardSel);

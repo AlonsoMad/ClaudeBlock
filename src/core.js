@@ -23,15 +23,16 @@ store.opt=Object.assign({music:true,sfx:true,shake:true},store.opt);
 store.stats=Object.assign({games:0,time:0,bricks:0,perfects:0,bosses:0,bestChain:0},store.stats);
 store.codex=store.codex||{};store.codex.items=store.codex.items||{};store.name=store.name||'';store.theme=store.theme||'claude';
 // meta-progression for Run mode + Casino; additive merge, same as opt/stats — no migrations
-// Chips and the equipped-relic selection are run-scoped now (game.chips / game.relicsEquipped) — never persisted.
+// Chips and relics (owned + equipped) are run-scoped now (game.chips / game.relicsOwned / game.relicsEquipped) —
+// never persisted, so every run starts from a clean slate (pure roguelike: no cross-run loadout).
 store.meta=Object.assign({
   unlocked:[],            // item ids whose unlock condition has fired — gates pool/directBuy eligibility
   unlockedCapsules:['E','M','L','C','F','S','B','U','H'],
-  relicsOwned:[],relicSlots:3,
+  relicSlots:3,
   runsPlayed:0,bestRound:0,wins:0,totalScore:0,
   endingsSeen:{},
 }, store.meta);
-// old saves may still carry store.meta.chips/relicsEquipped on disk — never deleted, just no longer read or written
+// old saves may still carry store.meta.chips/relicsEquipped/relicsOwned on disk — never deleted, just no longer read or written
 store.meta.casino=Object.assign({spins:0,blackjackHands:0,blackjackWins:0,blackjackNet:0},store.meta.casino);
 const save=()=>{try{localStorage.setItem(SKEY,JSON.stringify(store))}catch(e){}};
 const MODES=['endless','daily'];
@@ -42,4 +43,4 @@ function addEntry(m,e){const t=table(m).concat(e).sort((a,b)=>b.score-a.score).s
 
 // ================= game state =================
 let state='menu',game=null,K=1,dirty=true,bgL,brL,ovL,sprBall,sprFire,overT=0,entryName='',lastRank=-1;
-let parts=[],menuIdx=0,themeIdx=0,optIdx=0,recTab=0,afterGame=false,lastMode='endless',loadoutIdx=0,themesReturnTo='menu';
+let parts=[],menuIdx=0,themeIdx=0,optIdx=0,recTab=0,afterGame=false,lastMode='endless',themesReturnTo='menu';

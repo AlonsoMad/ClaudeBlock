@@ -1,7 +1,7 @@
 'use strict';
 // ================= reward picks: automatic level pay lives in run.js; this is the pick-1-of-3 (§8) =================
 function buildRewardOptions(){
-  const g=game,opts=[],relicPool=RELICS.filter(r=>store.meta.unlocked.includes(r.id)&&!store.meta.relicsOwned.includes(r.id));
+  const g=game,opts=[],relicPool=RELICS.filter(r=>store.meta.unlocked.includes(r.id)&&!g.relicsOwned.includes(r.id));
   if(relicPool.length)opts.push({kind:'relic',item:relicPool[Math.floor(Math.random()*relicPool.length)]});
   opts.push(g.lives<RUN.maxLives&&Math.random()<.6?{kind:'life'}:{kind:'shield'});
   opts.push(Math.random()<.5?{kind:'chips',amount:Math.round(RUN.rewardChipsBase*band(g.level).payoutMult)}:{kind:'capsule',cap:rollCap()});
@@ -18,8 +18,8 @@ function rewardLabel(opt){
 function pickReward(i){
   const g=game,opt=g.rewardOptions&&g.rewardOptions[i];if(!opt)return;
   if(opt.kind==='relic'){
-    const m=store.meta;(store.codex.items[opt.item.id]??={}).owned=1;
-    if(!m.relicsOwned.includes(opt.item.id))m.relicsOwned.push(opt.item.id);
+    const m=store.meta;
+    if(!g.relicsOwned.includes(opt.item.id))g.relicsOwned.push(opt.item.id);
     if(g.relicsEquipped.length<m.relicSlots){g.relicsEquipped.push(opt.item.id);equipRelics(g.relicsEquipped,g.mods)}
     save();
   }else if(opt.kind==='life'){g.lives=Math.min(RUN.maxLives,g.lives+1);sfx.life()}

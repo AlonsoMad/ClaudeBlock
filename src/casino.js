@@ -8,7 +8,8 @@ const cov=document.getElementById('casino');
 const TIERN=['','COMMON','UNCOMMON','RARE','LEGENDARY'];
 const TIER_W={roulette:[0,6,3,1,.3],blackjack:[0,1,2,4,3]}; // roulette leans common, blackjack leans rare
 const isUnlocked=it=>store.meta.unlocked.includes(it.id);
-const isOwned=it=>!!(store.codex.items[it.id]||{}).owned;
+// relics are owned per-run only (never persisted); capsule/upgrade grants are permanent one-time effects
+const isOwned=it=>it.kind==='relic'?!!(game&&game.relicsOwned.includes(it.id)):!!(store.codex.items[it.id]||{}).owned;
 const eligible=pool=>ITEMS.filter(it=>(!pool||it.pool.includes(pool))&&isUnlocked(it)&&!isOwned(it));
 function pullItem(pool){
   let c=eligible(pool);if(!c.length)c=eligible();if(!c.length)return null;
@@ -16,12 +17,15 @@ function pullItem(pool){
   return c.find((_,i)=>(t-=w[i])<0)||c[c.length-1];
 }
 function grant(it){
-  const m=store.meta,g=game;(store.codex.items[it.id]??={}).owned=1;
+  const m=store.meta,g=game;
   if(it.kind==='relic'){
-    m.relicsOwned.push(it.id);
-    if(g&&g.relicsEquipped&&g.relicsEquipped.length<m.relicSlots){g.relicsEquipped.push(it.id);equipRelics(g.relicsEquipped,g.mods)}
-  }else if(it.kind==='capsule')m.unlockedCapsules.push(it.cap);
-  else it.apply();
+    g.relicsOwned.push(it.id);
+    if(g.relicsEquipped.length<m.relicSlots){g.relicsEquipped.push(it.id);equipRelics(g.relicsEquipped,g.mods)}
+  }else{
+    (store.codex.items[it.id]??={}).owned=1;
+    if(it.kind==='capsule')m.unlockedCapsules.push(it.cap);
+    else it.apply();
+  }
   save();sfx.life();
 }
 function unlockNote(){const f=checkUnlocks(null);if(f.length)cMsg+='  ·  NEW AT THE CASINO: '+f.map(i=>i.name).join(', ')}
@@ -51,9 +55,9 @@ function buyShelf(idx){
   unlockNote();
 }
 function sellRelic(id){
-  const m=store.meta,g=game,it=ITEM[id];if(!it)return;
-  const oi=m.relicsOwned.indexOf(id);if(oi<0)return;
-  m.relicsOwned.splice(oi,1);(store.codex.items[id]||{}).owned=0;
+  const g=game,it=ITEM[id];if(!it)return;
+  const oi=g.relicsOwned.indexOf(id);if(oi<0)return;
+  g.relicsOwned.splice(oi,1);
   const ei=g.relicsEquipped.indexOf(id);if(ei>=0){g.relicsEquipped.splice(ei,1);equipRelics(g.relicsEquipped,g.mods)}
   const refund=Math.round(PRICES[it.tier]*RUN.sellRefund);g.chips+=refund;save();
   cMsg='Sold '+it.name+' for +'+refund+' chips.';
@@ -184,7 +188,7 @@ const CTABS={
         Item chance on a regular win at this wager: <b class="gold">${Math.round(itemChance(wager)*100)}%</b> · ${eligible('blackjack').length} items left in the blackjack pool · leans Rare & Legendary.</p></div>`;
   },
   loadout(){
-    const g=game,owned=store.meta.relicsOwned.map(id=>ITEM[id]).filter(Boolean);
+    const g=game,owned=g.relicsOwned.map(id=>ITEM[id]).filter(Boolean);
     return `<div class="panel wide"><div class="lbl">RELICS EQUIPPED ${g.relicsEquipped.length} / ${store.meta.relicSlots} · click to equip or unequip, free and instant</div>
       <div class="grid">${owned.length?owned.map(it=>card(it,g.relicsEquipped.includes(it.id)?'on':'','equip',
         `<button data-act="sell" data-v="${it.id}">SELL · +${Math.round(PRICES[it.tier]*RUN.sellRefund)}</button>`)).join(''):'<p class="dim">No relics yet. Win some at the tables or the shelf.</p>'}</div>
