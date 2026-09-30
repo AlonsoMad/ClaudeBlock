@@ -2,7 +2,7 @@
 let last=performance.now(),acc=0;
 // casino & codex draw as an HTML overlay
 const SCREENS={menu:drawMenu,themes:drawThemes,options:drawOptionsMenu,'opt-audio':drawOptAudio,'opt-video':drawOptVideo,
-  'opt-controls':drawControls,records:drawRecords,loadout:drawLoadout,reward:drawReward,casino:()=>{},codex:()=>{}};
+  'opt-controls':drawControls,records:drawRecords,reward:drawReward,casino:()=>{},codex:()=>{}};
 function frame(now){
   const dt=Math.min(.1,(now-last)/1000),tm=now/1000;last=now;
   if(state==='play'){acc+=dt;while(acc>=STEP&&state==='play'){update(STEP);acc-=STEP}}else acc=0;

@@ -6,13 +6,12 @@ function newGame(mode){
     shake:0,slow:0,pflash:0,stun:0,fx:{},banner:null,bricks:[],balls:[],caps:[],bolts:[],booms:[],shots:[],flashes:[],texts:[],
     t:0,playT:0,laserCd:0,shield:false,clearT:0,victory:0,won:false,boss:null,perfStreak:0,lastBoss:null,
     stats:{bricks:0,perfects:0,bosses:0},scrollY:0,cacheY:0,waitLaunch:true,chips:0,pendingStages:null,justBeatBoss:false,
-    mods:Object.assign({},MOD_DEFAULTS),rs:{},bestPerf:0,nextCap:null,dbl:false,key:false,result:null,
+    mods:Object.assign({},MOD_DEFAULTS),rs:{},bestPerf:0,nextCap:null,dbl:false,key:false,result:null,relicsOwned:[],
     seed:mode==='daily'?hashStr(today()):(Math.random()*1e9)|0,p:{x:W/2,w:110,y:672,h:14,vx:0}};
   clearHooks();
   runSetup();
   fire('runStart',game);
-  if(game.mode!=='daily'&&store.meta.relicsOwned.length){loadoutIdx=0;state='loadout'}
-  else{startLevel(1);state='play'}
+  startLevel(1);state='play';
 }
 const speed=()=>{const g=game;return Math.min(640,410+Math.min(30,g.level+1)*10)*(1+Math.min(.3,g.t*.004))*(g.fx.S>0?.7:1)};
 function resetBall(){

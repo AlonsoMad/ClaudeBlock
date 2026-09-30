@@ -9,15 +9,6 @@ function runSetup(){
   g.shelf=null;g.rerolls=0;g.shelfDiscounted=false;
   if(g.mods.markedDeck)g.nextCap=rollCap();
 }
-function confirmLoadout(){
-  equipRelics(game.relicsEquipped,game.mods);
-  startLevel(1);state='play';
-}
-function toggleLoadoutRelic(id){
-  const g=game,e=g.relicsEquipped;const i=e.indexOf(id);
-  if(i>=0)e.splice(i,1);else if(e.length<store.meta.relicSlots)e.push(id);
-}
-
 // ---------- level lifecycle ----------
 function startLevel(n){
   const g=game,gen=genRunLevel(n,g.seed);

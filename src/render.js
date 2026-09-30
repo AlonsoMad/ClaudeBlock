@@ -293,7 +293,7 @@ function drawMenu(tm){
   txt(MENU[menuIdx][1],W/2,578,14,T.sub,'center',0,500);
   const m=MODES[menuIdx];
   if(m){const e=table(m)[0];txt(e?`BEST  ${fmt(e.score)}  —  ${e.name}`:'NO RECORD YET',W/2,608,13,T.gold,'center')}
-  if(menuIdx===0||menuIdx===1)txt(`RELICS OWNED ${store.meta.relicsOwned.length}   ·   SLOTS ${store.meta.relicSlots}`,W/2,632,13,T.a1,'center');
+  if(menuIdx===0||menuIdx===1)txt(`RELIC SLOTS ${store.meta.relicSlots}`,W/2,632,13,T.a1,'center');
   footer('↑ ↓  SELECT        ENTER  CONFIRM        M  MUTE');
 }
 function drawControls(){
@@ -399,27 +399,6 @@ function bossIcon(k,cx,cy,known){
   else if(k==='dealer'){ctx.fillStyle=T.gold;ctx.beginPath();ctx.roundRect(cx-60,cy-20,120,40,10);ctx.fill();txt('♠',cx,cy+11,30,'#fff','center',0,900)}
   else if(k==='mirror'){paddleShape(cx,cy-30,100,11,T.a2,12);paddleShape(cx,cy+20,100,11,T.paddle,12);ctx.fillStyle=`rgb(${T.ball})`;circ(cx+16,cy-4,6)}
   else{drawSpark(ctx,cx,cy,44,12,0,T.a1,6);ctx.fillStyle=T.a1;circ(cx,cy,14)}
-}
-function drawLoadout(){
-  const owned=store.meta.relicsOwned.map(id=>ITEM[id]).filter(Boolean),g=game;
-  head('LOADOUT',W/2,70,44,T.a1,16);
-  txt(`EQUIPPED ${g.relicsEquipped.length} / ${store.meta.relicSlots}`,W/2,104,14,T.sub,'center');
-  if(!owned.length){
-    txt('No relics owned yet. Win some at the Casino.',W/2,300,16,T.sub,'center');
-    footer('ENTER / ESC  START RUN');return;
-  }
-  const rows=owned.length+1;
-  panel(W/2-300,130,600,Math.min(480,70+rows*44),'','a1');
-  owned.forEach((it,i)=>{
-    const y=175+i*44,sel=i===loadoutIdx,on=g.relicsEquipped.includes(it.id);
-    if(sel){ctx.fillStyle=T.a1;ctx.globalAlpha=.13;ctx.fillRect(W/2-280,y-24,560,36);ctx.globalAlpha=1}
-    txt((on?'☑ ':'☐ ')+it.name,W/2-260,y,15,sel?T.a1:(on?T.good:T.text));
-    txt(it.info,W/2+260,y,11,T.sub,'right',0,500);
-  });
-  const doneY=175+owned.length*44,doneSel=loadoutIdx===owned.length;
-  if(doneSel){ctx.fillStyle=T.a1;ctx.globalAlpha=.13;ctx.fillRect(W/2-280,doneY-24,560,36);ctx.globalAlpha=1}
-  txt('START RUN ▶',W/2,doneY,17,doneSel?T.a1:T.good,'center');
-  footer('↑ ↓  SELECT        ENTER  TOGGLE / START        ESC  SKIP');
 }
 function drawReward(){
   const g=game,opts=g.rewardOptions||[];
